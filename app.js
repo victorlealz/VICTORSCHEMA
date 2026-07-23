@@ -278,8 +278,8 @@ function buildCyStyle() {
       style: {
         'background-color':      nodeBg,
         'background-image':      'data(iconSvg)',
-        'background-width':      '62%',
-        'background-height':     '62%',
+        'background-width':      '78%',
+        'background-height':     '78%',
         'background-position-x': '50%',
         'background-position-y': '50%',
         'background-clip':       'none',
@@ -295,8 +295,8 @@ function buildCyStyle() {
         'text-margin-y':         8,
         'text-wrap':             'wrap',
         'text-max-width':        92,
-        'width':                 68,
-        'height':                68,
+        'width':'data(size)',
+        'height':'data(size)',
         'shape':                 'round-rectangle',
         'transition-property':   'border-color, border-width, background-color, color',
         'transition-duration':   '110ms',
@@ -527,6 +527,7 @@ function addNodeToGraph(typeId, name, position) {
       name,
       type:    typeId,
       iconSvg: getIconUri(type),
+      size:68
     },
     position,
   });
@@ -735,7 +736,11 @@ function exportPDF() {
   if (!cy.elements().length) { showToast('Add some entities first!'); return; }
 
   const { jsPDF }  = window.jspdf;
-  const imgData    = cy.png({ scale: 2.5, bg: '#0c0c0c', full: true });
+  const imgData = cy.png({
+    scale:2.5,
+    bg:'#ffffff',
+    full:true
+});
   const bb         = cy.elements().boundingBox();
   const isLandscape = bb.w >= bb.h;
 
@@ -744,11 +749,11 @@ function exportPDF() {
   const pH   = doc.internal.pageSize.getHeight();
 
   // Dark page background
-  doc.setFillColor(12, 12, 12);
+  doc.setFillColor(255,255,255);
   doc.rect(0, 0, pW, pH, 'F');
 
   // Header: logo
-  doc.setTextColor(240, 240, 240);
+  doc.setTextColor(0,0,0);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   doc.text('SCHEMA', 14, 17);
@@ -756,7 +761,7 @@ function exportPDF() {
   // Header: subtitle / date
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
-  doc.setTextColor(90, 90, 90);
+  doc.setTextColor(80,80,80);
   const dateStr = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
   doc.text(`Visual Link Schema  ·  ${dateStr}`, 14, 23.5);
 
@@ -766,7 +771,7 @@ function exportPDF() {
   doc.text(`${n} ${n === 1 ? 'entity' : 'entities'}  ·  ${e} ${e === 1 ? 'connection' : 'connections'}`, pW - 14, 23.5, { align: 'right' });
 
   // Divider
-  doc.setDrawColor(36, 36, 36);
+  doc.setDrawColor(220,220,220);
   doc.line(14, 27, pW - 14, 27);
 
   // Graph image
