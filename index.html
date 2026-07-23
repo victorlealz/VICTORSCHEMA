@@ -282,13 +282,14 @@
        CANVAS
     ========================================================= */
     .canvas-wrap {
-      flex: 1;
-      position: relative;
-      overflow: hidden;
-      background-color: var(--bg);
-      background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px);
-      background-size: 22px 22px;
-      transition: background-color 0.2s;
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+
+    background:#ffffff;
+    background-image:none;
+
+    transition: background-color .2s;
     }
 
     #cy {
@@ -701,6 +702,20 @@
           <div class="form-group">
             <div class="form-label" id="lbl-type">Type</div>
             <select class="form-select" id="ii-type">
+              <div class="form-group">
+    <div class="form-label">
+        Size
+    </div>
+
+    <input
+        type="range"
+        id="ii-size"
+        class="form-input"
+        min="40"
+        max="180"
+        step="2">
+
+</div>
               <!-- Populated by JS -->
             </select>
           </div>
