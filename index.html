@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCHEMA — Visual Link Builder</title>
+  <meta name="description" content="A minimal tool for building visual schemas and link diagrams with entities and connections.">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    /* =========================================================
+       RESET & BASE
+    ========================================================= */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      /* ── Dark theme (default) ── */
+      --bg:         #0c0c0c;
+      --surface:    #111111;
+      --surface-2:  #191919;
+      --surface-3:  #222222;
+      --border:     #242424;
+      --border-mid: #333333;
+      --border-hi:  #484848;
+      --text:       #f0f0f0;
+      --text-dim:   #888888;
+      --text-muted: #4a4a4a;
+      --danger:     #e05555;
+
+      --palette-w:    188px;
+      --inspector-w:  252px;
+      --toolbar-h:    50px;
+      --statusbar-h:  28px;
+      --radius-sm:    4px;
+      --radius:       6px;
+
+      /* canvas dot color */
+      --dot-color: #1f1f1f;
+    }
+
+    /* ── Light theme override ── */
+    :root.light {
+      --bg:         #f0f0f0;
+      --surface:    #fafafa;
+      --surface-2:  #f0f0f0;
+      --surface-3:  #e6e6e6;
+      --border:     #e2e2e2;
+      --border-mid: #cccccc;
+      --border-hi:  #999999;
+      --text:       #111111;
+      --text-dim:   #555555;
+      --text-muted: #aaaaaa;
+      --danger:     #cc2222;
+      --dot-color:  #d0d0d0;
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      -webkit-font-smoothing: antialiased;
+      transition: background 0.2s, color 0.2s;
+    }
+
+    /* =========================================================
+       APP SHELL
+    ========================================================= */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* =========================================================
+       TOOLBAR
+    ========================================================= */
+    .toolbar {
+      height: var(--toolbar-h);
+      min-height: var(--toolbar-h);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 5px;
+      z-index: 50;
+      flex-shrink: 0;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .toolbar-logo {
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: var(--text);
+      margin-right: 3px;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .tb-sep {
+      width: 1px;
+      height: 22px;
+      background: var(--border-mid);
+      margin: 0 2px;
+      flex-shrink: 0;
+    }
+
+    .tb-spacer { flex: 1; }
+
+    .tb-group {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    /* =========================================================
+       BUTTONS
+    ========================================================= */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-mid);
+      background: transparent;
+      color: var(--text-dim);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      white-space: nowrap;
+      user-select: none;
+      letter-spacing: 0.2px;
+      line-height: 1;
+    }
+
+    .btn:hover:not(:disabled) {
+      background: var(--surface-2);
+      color: var(--text);
+      border-color: var(--border-hi);
+    }
+
+    .btn.active {
+      background: var(--text);
+      color: var(--bg);
+      border-color: var(--text);
+      font-weight: 600;
+    }
+
+    .btn.active:hover:not(:disabled) {
+      opacity: 0.88;
+    }
+
+    .btn.danger {
+      color: var(--danger);
+      border-color: rgba(224, 85, 85, 0.22);
+    }
+
+    .btn.danger:hover:not(:disabled) {
+      background: rgba(224, 85, 85, 0.07);
+      border-color: var(--danger);
+    }
+
+    :root.light .btn.danger {
+      border-color: rgba(204, 34, 34, 0.22);
+    }
+
+    :root.light .btn.danger:hover:not(:disabled) {
+      background: rgba(204, 34, 34, 0.07);
+    }
+
+    .btn:disabled {
+      opacity: 0.26;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    /* Lang button – subtle highlight */
+    #btn-lang {
+      font-size: 10.5px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      padding: 5px 9px;
+    }
+
+    /* Theme button */
+    #btn-theme {
+      font-size: 11px;
+      padding: 5px 9px;
+    }
+
+    /* =========================================================
+       WORKSPACE
+    ========================================================= */
+    .workspace {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* =========================================================
+       ENTITY PALETTE
+    ========================================================= */
+    .palette {
+      width: var(--palette-w);
+      min-width: var(--palette-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      flex-shrink: 0;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .panel-heading {
+      padding: 13px 13px 9px;
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 2.5px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .palette-list {
+      padding: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .palette-item {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 9px 9px;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s, transform 0.08s;
+      user-select: none;
+    }
+
+    .palette-item:hover {
+      background: var(--surface-2);
+      border-color: var(--border-mid);
+    }
+
+    .palette-item:active { transform: scale(0.97); }
+
+    .palette-icon {
+      font-size: 17px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .palette-name {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--text-dim);
+      transition: color 0.1s;
+    }
+
+    .palette-item:hover .palette-name { color: var(--text); }
+
+    /* =========================================================
+       CANVAS
+    ========================================================= */
+    .canvas-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background-color: var(--bg);
+      background-image: radial-gradient(circle, var(--dot-color) 1px, transparent 1px);
+      background-size: 22px 22px;
+      transition: background-color 0.2s;
+    }
+
+    #cy {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .mode-pill {
+      position: absolute;
+      top: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 5px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border-hi);
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-dim);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      white-space: nowrap;
+      z-index: 10;
+    }
+
+    .mode-pill.visible { opacity: 1; }
+
+    .canvas-hint {
+      position: absolute;
+      bottom: 14px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 11px;
+      color: var(--text-muted);
+      pointer-events: none;
+      white-space: nowrap;
+      letter-spacing: 0.3px;
+    }
+
+    /* =========================================================
+       INSPECTOR
+    ========================================================= */
+    .inspector {
+      width: var(--inspector-w);
+      min-width: var(--inspector-w);
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      flex-shrink: 0;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .insp-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 28px 20px;
+      text-align: center;
+    }
+
+    .insp-empty-glyph {
+      font-size: 28px;
+      opacity: 0.1;
+      line-height: 1;
+    }
+
+    .insp-empty p {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+
+    .insp-section {
+      display: none;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .insp-section.visible { display: flex; }
+
+    .insp-entity-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 16px 14px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .insp-entity-icon {
+      font-size: 28px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .insp-entity-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .insp-entity-kind {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .insp-entity-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .insp-edge-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .insp-edge-glyph {
+      font-size: 18px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .insp-edge-kind {
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .insp-body {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .form-label {
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .form-input {
+      padding: 7px 9px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-mid);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 12.5px;
+      outline: none;
+      transition: border-color 0.12s, background 0.2s, color 0.2s;
+    }
+
+    .form-input:focus { border-color: var(--border-hi); }
+
+    .form-select {
+      padding: 7px 28px 7px 9px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-mid);
+      border-radius: var(--radius-sm);
+      color: var(--text);
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 12.5px;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23777' d='M5 6L0 0h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 9px center;
+      transition: border-color 0.12s, background 0.2s, color 0.2s;
+    }
+
+    .form-select:focus { border-color: var(--border-hi); }
+    .form-select option { background: var(--surface-2); }
+
+    .toggle-row {
+      display: flex;
+      gap: 5px;
+    }
+
+    .toggle-row .btn {
+      flex: 1;
+      font-size: 12px;
+    }
+
+    .insp-footer {
+      padding: 12px 14px 14px;
+      border-top: 1px solid var(--border);
+      margin-top: auto;
+    }
+
+    .insp-footer .btn {
+      width: 100%;
+      padding: 7px;
+      font-size: 11.5px;
+    }
+
+    /* =========================================================
+       STATUS BAR
+    ========================================================= */
+    .statusbar {
+      height: var(--statusbar-h);
+      min-height: var(--statusbar-h);
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 14px;
+      flex-shrink: 0;
+      transition: background 0.2s, border-color 0.2s;
+    }
+
+    .sb-stat {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      letter-spacing: 0.2px;
+    }
+
+    .sb-sep {
+      width: 1px;
+      height: 12px;
+      background: var(--border-mid);
+    }
+
+    .sb-hints {
+      margin-left: auto;
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.2px;
+    }
+
+    /* =========================================================
+       TOAST
+    ========================================================= */
+    .toast {
+      position: fixed;
+      bottom: 44px;
+      left: 50%;
+      transform: translateX(-50%) translateY(10px);
+      background: var(--text);
+      color: var(--bg);
+      padding: 7px 18px;
+      border-radius: 20px;
+      font-size: 11.5px;
+      font-weight: 600;
+      opacity: 0;
+      transition: all 0.22s ease;
+      pointer-events: none;
+      z-index: 9999;
+      white-space: nowrap;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* =========================================================
+       SCROLLBAR
+    ========================================================= */
+    ::-webkit-scrollbar { width: 3px; height: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 2px; }
+
+    /* =========================================================
+       MISC
+    ========================================================= */
+    #file-input { display: none; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══════════════════════════════════════════════════════
+       TOOLBAR
+  ═══════════════════════════════════════════════════════ -->
+  <header class="toolbar">
+    <div class="toolbar-logo">VICTOR SCHEMA</div>
+    <div class="tb-sep"></div>
+
+    <!-- Interaction modes -->
+    <div class="tb-group">
+      <button class="btn active" id="btn-select" title="Select &amp; Move  [S]">✦ <span data-i18n="select">Select</span></button>
+      <button class="btn"        id="btn-line"   title="Draw plain line  [L]">— <span data-i18n="line">Line</span></button>
+      <button class="btn"        id="btn-arrow"  title="Draw arrow  [A]">→ <span data-i18n="arrow">Arrow</span></button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Edit -->
+    <div class="tb-group">
+      <button class="btn"        id="btn-undo"   title="Undo  [Ctrl+Z]"      disabled>↩ <span data-i18n="undo">Undo</span></button>
+      <button class="btn"        id="btn-redo"   title="Redo  [Ctrl+Y]"      disabled>↪ <span data-i18n="redo">Redo</span></button>
+      <button class="btn danger" id="btn-delete" title="Delete selected  [Del]" disabled>✕ <span data-i18n="delete">Delete</span></button>
+    </div>
+
+    <div class="tb-spacer"></div>
+
+    <!-- View -->
+    <div class="tb-group">
+      <button class="btn" id="btn-fit" title="Fit graph to screen  [F]">⊞ <span data-i18n="fit">Fit</span></button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Export -->
+    <div class="tb-group">
+      <button class="btn" id="btn-png" title="Export as PNG image">↓ PNG</button>
+      <button class="btn" id="btn-pdf" title="Export as PDF">↓ PDF</button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Import -->
+    <div class="tb-group">
+      <button class="btn" id="btn-import" title="Import CSV or XLSX">↑ <span data-i18n="import">Import</span></button>
+      <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Language & Theme -->
+    <div class="tb-group">
+      <button class="btn" id="btn-lang"  title="Switch language / Trocar idioma">PT-BR</button>
+      <button class="btn" id="btn-theme" title="Toggle color theme / Alternar tema">☀ <span id="btn-theme-label">Light</span></button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════════
+       WORKSPACE
+  ═══════════════════════════════════════════════════════ -->
+  <div class="workspace">
+
+    <!-- ENTITY PALETTE -->
+    <aside class="palette">
+      <div class="panel-heading" id="palette-heading">Entities</div>
+      <div class="palette-list" id="palette-list">
+        <!-- Populated by JS -->
+      </div>
+    </aside>
+
+    <!-- CANVAS -->
+    <main class="canvas-wrap">
+      <div id="cy"></div>
+      <div class="mode-pill" id="mode-pill"></div>
+      <div class="canvas-hint" id="canvas-hint">Click an entity to add it &nbsp;·&nbsp; Double-click a node to rename</div>
+    </main>
+
+    <!-- INSPECTOR -->
+    <aside class="inspector">
+
+      <!-- Empty state -->
+      <div class="insp-empty" id="insp-empty">
+        <div class="insp-empty-glyph">◈</div>
+        <p id="insp-empty-text">Select an entity or connection to view its properties</p>
+      </div>
+
+      <!-- Node inspector -->
+      <div class="insp-section" id="insp-node">
+        <div class="insp-entity-head">
+          <div class="insp-entity-icon" id="ii-icon">👤</div>
+          <div class="insp-entity-meta">
+            <div class="insp-entity-kind" id="ii-kind">PERSON</div>
+            <div class="insp-entity-title" id="ii-title">—</div>
+          </div>
+        </div>
+        <div class="insp-body">
+          <div class="form-group">
+            <div class="form-label" id="lbl-name">Name</div>
+            <input type="text" class="form-input" id="ii-name" placeholder="…">
+          </div>
+          <div class="form-group">
+            <div class="form-label" id="lbl-type">Type</div>
+            <select class="form-select" id="ii-type">
+              <!-- Populated by JS -->
+            </select>
+          </div>
+        </div>
+        <div class="insp-footer">
+          <button class="btn danger" id="btn-del-node">✕ <span data-i18n="removeEntity">Remove Entity</span></button>
+        </div>
+      </div>
+
+      <!-- Edge inspector -->
+      <div class="insp-section" id="insp-edge">
+        <div class="insp-edge-head">
+          <div class="insp-edge-glyph" id="ie-glyph">—</div>
+          <div class="insp-edge-kind" id="ie-kind">LINE CONNECTION</div>
+        </div>
+        <div class="insp-body">
+          <div class="form-group">
+            <div class="form-label" id="lbl-edge-label">Label <span id="lbl-edge-optional" style="opacity:.5;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+            <input type="text" class="form-input" id="ie-label" placeholder="e.g. works_at">
+          </div>
+          <div class="form-group">
+            <div class="form-label" id="lbl-conntype">Connection type</div>
+            <div class="toggle-row">
+              <button class="btn active" id="ie-line-btn">— <span data-i18n="lineLbl">Line</span></button>
+              <button class="btn"        id="ie-arrow-btn">→ <span data-i18n="arrowLbl">Arrow</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="insp-footer">
+          <button class="btn danger" id="btn-del-edge">✕ <span data-i18n="removeConn">Remove Connection</span></button>
+        </div>
+      </div>
+
+    </aside>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       STATUS BAR
+  ═══════════════════════════════════════════════════════ -->
+  <footer class="statusbar">
+    <span class="sb-stat" id="sb-nodes">0 entities</span>
+    <div class="sb-sep"></div>
+    <span class="sb-stat" id="sb-edges">0 connections</span>
+    <span class="sb-hints" id="sb-hints">S — select &nbsp;·&nbsp; L — line &nbsp;·&nbsp; A — arrow &nbsp;·&nbsp; F — fit &nbsp;·&nbsp; Del — delete &nbsp;·&nbsp; Ctrl+Z/Y — undo/redo</span>
+  </footer>
+
+</div><!-- /.app -->
+
+<script src="app.js"></script>
+</body>
+</html>
