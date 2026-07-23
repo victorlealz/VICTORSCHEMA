@@ -612,7 +612,7 @@ function showNodeInspector(node) {
   $('insp-empty').style.display = 'none';
   $('insp-node').classList.add('visible');
   $('insp-edge').classList.remove('visible');
-
+  $('ii-size').value=node.data('size')||68;
   $('ii-icon').textContent  = type.icon;
   $('ii-kind').textContent  = getEntityLocalName(type.id).toUpperCase();
   $('ii-title').textContent = node.data('name') || '—';
@@ -1061,6 +1061,13 @@ function initInspector() {
     }
   });
   $('ii-name').addEventListener('change', () => pushHistory());
+
+  // Node: change size
+  $('ii-size').addEventListener('input',function(){
+    if(selectedEl?.isNode()){
+        selectedEl.data('size',Number(this.value));
+    }
+});
 
   // Node: type select → swap icon
   $('ii-type').addEventListener('change', function () {
