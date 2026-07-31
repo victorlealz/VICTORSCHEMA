@@ -33,9 +33,10 @@
       --text-dim:   #888888;
       --text-muted: #4a4a4a;
       --danger:     #e05555;
+      --accent:     #4a9eff;
 
       --palette-w:    188px;
-      --inspector-w:  252px;
+      --inspector-w:  280px;
       --toolbar-h:    50px;
       --statusbar-h:  28px;
       --radius-sm:    4px;
@@ -43,6 +44,8 @@
 
       /* canvas dot color */
       --dot-color: #1f1f1f;
+      /* alignment guide color */
+      --guide-color: rgba(74,158,255,0.7);
     }
 
     /* ── Light theme override ── */
@@ -59,6 +62,7 @@
       --text-muted: #aaaaaa;
       --danger:     #cc2222;
       --dot-color:  #d0d0d0;
+      --guide-color: rgba(74,130,255,0.8);
     }
 
     html, body {
@@ -188,7 +192,7 @@
       pointer-events: none;
     }
 
-    /* Lang button – subtle highlight */
+    /* Lang button */
     #btn-lang {
       font-size: 10.5px;
       font-weight: 700;
@@ -200,6 +204,12 @@
     #btn-theme {
       font-size: 11px;
       padding: 5px 9px;
+    }
+
+    /* Align buttons — smaller */
+    .btn-align {
+      padding: 5px 7px;
+      font-size: 13px;
     }
 
     /* =========================================================
@@ -282,14 +292,11 @@
        CANVAS
     ========================================================= */
     .canvas-wrap {
-    flex: 1;
-    position: relative;
-    overflow: hidden;
-
-    background:#ffffff;
-    background-image:none;
-
-    transition: background-color .2s;
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: var(--bg);
+      transition: background-color .2s;
     }
 
     #cy {
@@ -297,6 +304,32 @@
       inset: 0;
       width: 100%;
       height: 100%;
+    }
+
+    /* ── Alignment guides overlay ── */
+    #align-guides {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 99999;
+      overflow: hidden;
+    }
+
+    .guide-line {
+      position: absolute;
+      background: #4a9eff;
+      z-index: 99999;
+      pointer-events: none;
+    }
+
+    .guide-line.h {
+      left: 0; right: 0;
+      height: 1.5px;
+    }
+
+    .guide-line.v {
+      top: 0; bottom: 0;
+      width: 1.5px;
     }
 
     .mode-pill {
@@ -338,11 +371,13 @@
     .inspector {
       width: var(--inspector-w);
       min-width: var(--inspector-w);
+      max-width: var(--inspector-w);
       background: var(--surface);
       border-left: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       overflow-y: auto;
+      overflow-x: hidden;
       flex-shrink: 0;
       transition: background 0.2s, border-color 0.2s;
     }
@@ -390,6 +425,20 @@
       font-size: 28px;
       line-height: 1;
       flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-radius: 6px;
+    }
+
+    .insp-entity-icon img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border-radius: 4px;
     }
 
     .insp-entity-meta {
@@ -443,6 +492,8 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
+      min-width: 0;
+      overflow: hidden;
     }
 
     .form-group {
@@ -493,6 +544,13 @@
     .form-select:focus { border-color: var(--border-hi); }
     .form-select option { background: var(--surface-2); }
 
+    input[type="range"].form-input {
+      padding: 4px 0;
+      height: 24px;
+      cursor: pointer;
+      accent-color: var(--accent);
+    }
+
     .toggle-row {
       display: flex;
       gap: 5px;
@@ -515,14 +573,54 @@
       font-size: 11.5px;
     }
 
-    <label>Tamanho</label>
+    /* ── Node image upload area ── */
+    .upload-area {
+      border: 1.5px dashed var(--border-hi);
+      border-radius: var(--radius);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      align-items: stretch;
+      min-width: 0;
+      overflow: hidden;
+    }
 
-      <input
-      type="range"
-      id="ii-size"
-      min="40"
-      max="180"
-      step="2">
+    .upload-area .btn {
+      font-size: 11px;
+      padding: 5px 8px;
+      justify-content: center;
+    }
+
+    .upload-preview {
+      width: 100%;
+      height: 52px;
+      object-fit: contain;
+      border-radius: var(--radius-sm);
+      display: none;
+      background: var(--surface-3);
+    }
+
+    .upload-preview.visible { display: block; }
+
+    .flaticon-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    .flaticon-row .form-input {
+      width: 100%;
+      min-width: 0;
+      font-size: 11px;
+    }
+
+    .flaticon-row .btn {
+      width: 100%;
+      font-size: 11px;
+      padding: 5px 8px;
+    }
 
     /* =========================================================
        STATUS BAR
@@ -595,7 +693,8 @@
     /* =========================================================
        MISC
     ========================================================= */
-    #file-input { display: none; }
+    #file-input         { display: none; }
+    #node-img-input     { display: none; }
   </style>
 </head>
 <body>
@@ -610,7 +709,7 @@
 
     <!-- Interaction modes -->
     <div class="tb-group">
-      <button class="btn active" id="btn-select" title="Select &amp; Move  [S]">✦ <span data-i18n="select">Select</span></button>
+      <button class="btn active" id="btn-select" title="Select & Move  [S]">✦ <span data-i18n="select">Select</span></button>
       <button class="btn"        id="btn-line"   title="Draw plain line  [L]">— <span data-i18n="line">Line</span></button>
       <button class="btn"        id="btn-arrow"  title="Draw arrow  [A]">→ <span data-i18n="arrow">Arrow</span></button>
     </div>
@@ -622,6 +721,17 @@
       <button class="btn"        id="btn-undo"   title="Undo  [Ctrl+Z]"      disabled>↩ <span data-i18n="undo">Undo</span></button>
       <button class="btn"        id="btn-redo"   title="Redo  [Ctrl+Y]"      disabled>↪ <span data-i18n="redo">Redo</span></button>
       <button class="btn danger" id="btn-delete" title="Delete selected  [Del]" disabled>✕ <span data-i18n="delete">Delete</span></button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Alignment -->
+    <div class="tb-group">
+      <button class="btn btn-align" id="btn-align-h"     title="Align selected entities horizontally (same Y)">⬌</button>
+      <button class="btn btn-align" id="btn-align-v"     title="Align selected entities vertically (same X)">⬍</button>
+      <button class="btn btn-align" id="btn-distribute-h" title="Distribute horizontally (equal X spacing)">⇿</button>
+      <button class="btn btn-align" id="btn-distribute-v" title="Distribute vertically (equal Y spacing)">↕</button>
+      <button class="btn"           id="btn-guides"       title="Toggle alignment guides while dragging">⊹ <span data-i18n="guides">Guides</span></button>
     </div>
 
     <div class="tb-spacer"></div>
@@ -670,8 +780,10 @@
     </aside>
 
     <!-- CANVAS -->
-    <main class="canvas-wrap">
+    <main class="canvas-wrap" id="canvas-wrap">
       <div id="cy"></div>
+      <!-- Alignment guides overlay -->
+      <div id="align-guides"></div>
       <div class="mode-pill" id="mode-pill"></div>
       <div class="canvas-hint" id="canvas-hint">Click an entity to add it &nbsp;·&nbsp; Double-click a node to rename</div>
     </main>
@@ -695,30 +807,60 @@
           </div>
         </div>
         <div class="insp-body">
+
+          <!-- Name -->
           <div class="form-group">
             <div class="form-label" id="lbl-name">Name</div>
             <input type="text" class="form-input" id="ii-name" placeholder="…">
           </div>
+
+          <!-- Type -->
           <div class="form-group">
             <div class="form-label" id="lbl-type">Type</div>
             <select class="form-select" id="ii-type">
-              <div class="form-group">
-    <div class="form-label">
-        Size
-    </div>
-
-    <input
-        type="range"
-        id="ii-size"
-        class="form-input"
-        min="40"
-        max="180"
-        step="2">
-
-</div>
               <!-- Populated by JS -->
             </select>
           </div>
+
+          <!-- Size -->
+          <div class="form-group">
+            <div class="form-label" id="lbl-size">Size</div>
+            <input type="range" id="ii-size" class="form-input" min="40" max="180" step="2">
+          </div>
+
+          <!-- Custom image / icon -->
+          <div class="form-group">
+            <div class="form-label" id="lbl-custom-icon">Custom Icon / Image</div>
+            <div class="upload-area">
+              <img id="upload-preview" class="upload-preview" alt="preview">
+
+              <!-- Upload image -->
+              <button class="btn" id="btn-upload-img" title="Upload an image file to use as icon">🖼 <span data-i18n="uploadImage">Upload Image</span></button>
+              <input type="file" id="node-img-input" accept="image/*">
+
+              <!-- Custom text icon -->
+              <div class="form-group" style="margin-top:2px;">
+                <div class="form-label" id="lbl-text-icon" style="font-size:9px">Text / Emoji as Icon</div>
+                <div style="display:flex;flex-direction:column;gap:5px">
+                  <input type="text" class="form-input" id="ii-text-icon" placeholder="e.g. 🔥 or AB" style="width:100%;font-size:13px">
+                  <button class="btn" id="btn-apply-text-icon" style="width:100%;font-size:11px;padding:5px 8px">Apply Text</button>
+                </div>
+              </div>
+
+              <!-- Flaticon URL -->
+              <div class="form-group" style="margin-top:2px;">
+                <div class="form-label" id="lbl-flaticon" style="font-size:9px">Flaticon URL (página ou CDN)</div>
+                <div class="flaticon-row">
+                  <input type="text" class="form-input" id="ii-flaticon-url" placeholder="flaticon.com/free-icon/… ou cdn-icons-png.flaticon.com/…">
+                  <button class="btn" id="btn-apply-flaticon">Apply</button>
+                </div>
+              </div>
+
+              <!-- Reset to default -->
+              <button class="btn" id="btn-reset-icon" style="font-size:10.5px;opacity:0.7">↺ <span data-i18n="resetIcon">Reset Icon</span></button>
+            </div>
+          </div>
+
         </div>
         <div class="insp-footer">
           <button class="btn danger" id="btn-del-node">✕ <span data-i18n="removeEntity">Remove Entity</span></button>

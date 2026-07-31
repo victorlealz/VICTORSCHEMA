@@ -4,6 +4,13 @@
  *
  * Modes:  select | line | arrow
  * Panels: palette (left) | canvas (center) | inspector (right)
+ *
+ * Features added:
+ *  1. Alignment guides while dragging
+ *  2. Align/distribute buttons (H & V)
+ *  3. Custom node icon: image upload, text/emoji, Flaticon URL
+ *  4. PNG export uses correct dark/light background
+ *  5. Dark mode: labels and edge arrows always white
  */
 
 'use strict';
@@ -11,7 +18,6 @@
 // ─────────────────────────────────────────────────────────────────
 //  ENTITY TYPE DEFINITIONS
 // ─────────────────────────────────────────────────────────────────
-// Neutral person silhouette — avoids the platform-colored 👤 emoji
 const PERSON_SVG_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">' +
   '<circle cx="32" cy="20" r="13" fill="#909090"/>' +
@@ -44,12 +50,13 @@ let histIdx       = -1;
 const MAX_HIST    = 60;
 let currentLang   = 'en';       // 'en' | 'pt'
 let isLight       = false;      // false = dark (default)
+let guidesEnabled = true;       // alignment guides active?
 
 // ─────────────────────────────────────────────────────────────────
 //  UTILITIES
 // ─────────────────────────────────────────────────────────────────
-const uid    = () => 'id' + Math.random().toString(36).slice(2, 10);
-const $      = id  => document.getElementById(id);
+const uid = () => 'id' + Math.random().toString(36).slice(2, 10);
+const $   = id  => document.getElementById(id);
 
 function getType(id) {
   return ENTITY_TYPES.find(t => t.id === id) ?? ENTITY_TYPES[0];
@@ -65,6 +72,20 @@ function emojiSvg(emoji) {
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
 }
 
+/** Build a text/label SVG — used when user sets a short text as the icon */
+function textSvg(text, isDark) {
+  const fill = isDark ? '#ffffff' : '#111111';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
+    <text x="32" y="42" text-anchor="middle" dominant-baseline="middle"
+      font-size="${text.length <= 2 ? 32 : 20}"
+      font-weight="700"
+      font-family="Inter,system-ui,sans-serif"
+      fill="${fill}"
+    >${text}</text>
+  </svg>`;
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+}
+
 /** Returns the data-URI to use as a Cytoscape node icon for a given entity type. */
 function getIconUri(type) {
   return type.iconUri ?? emojiSvg(type.icon);
@@ -75,7 +96,6 @@ function getIconUri(type) {
 // ─────────────────────────────────────────────────────────────────
 const I18N = {
   en: {
-    // toolbar buttons
     select:       'Select',
     line:         'Line',
     arrow:        'Arrow',
@@ -84,35 +104,33 @@ const I18N = {
     delete:       'Delete',
     fit:          'Fit',
     import:       'Import',
-    // inspector edge
+    guides:       'Guides',
     lineLbl:      'Line',
     arrowLbl:     'Arrow',
     removeEntity: 'Remove Entity',
     removeConn:   'Remove Connection',
-    // static ids
     paletteHeading:   'Entities',
     canvasHint:       'Click an entity to add it \u00a0·\u00a0 Double-click a node to rename',
     inspEmptyText:    'Select an entity or connection to view its properties',
     lblName:          'Name',
     lblType:          'Type',
+    lblSize:          'Size',
     lblEdgeLabel:     'Label',
     lblEdgeOptional:  '(optional)',
     lblConntype:      'Connection type',
     sbHints:          'S\u00a0\u2014 select \u00a0·\u00a0 L\u00a0\u2014 line \u00a0·\u00a0 A\u00a0\u2014 arrow \u00a0·\u00a0 F\u00a0\u2014 fit \u00a0·\u00a0 Del\u00a0\u2014 delete \u00a0·\u00a0 Ctrl+Z/Y\u00a0\u2014 undo/redo',
     iiNamePlaceholder: '\u2026',
     ieLabelPlaceholder: 'e.g. works_at',
-    // mode pill
     modeLineSrc:   '\u2014 Line mode \u00b7 click the source node',
     modeLineTgt:   '\u2014 Line mode \u00b7 now click the target node',
     modeArrowSrc:  '\u2192 Arrow mode \u00b7 click the source node',
     modeArrowTgt:  '\u2192 Arrow mode \u00b7 now click the target node',
-    // theme button
     themeLight: 'Light',
     themeDark:  'Dark',
-    // edge inspector kinds
     lineConn:  'LINE CONNECTION',
     arrowConn: 'ARROW CONNECTION',
-    // entity type names
+    uploadImage: 'Upload Image',
+    resetIcon:   'Reset Icon',
     entity_person:       'Person',
     entity_organization: 'Organization',
     entity_phone:        'Phone',
@@ -133,6 +151,7 @@ const I18N = {
     delete:       'Excluir',
     fit:          'Ajustar',
     import:       'Importar',
+    guides:       'Guias',
     lineLbl:      'Linha',
     arrowLbl:     'Seta',
     removeEntity: 'Remover Entidade',
@@ -142,6 +161,7 @@ const I18N = {
     inspEmptyText:    'Selecione uma entidade ou conex\u00e3o para ver suas propriedades',
     lblName:          'Nome',
     lblType:          'Tipo',
+    lblSize:          'Tamanho',
     lblEdgeLabel:     'R\u00f3tulo',
     lblEdgeOptional:  '(opcional)',
     lblConntype:      'Tipo de conex\u00e3o',
@@ -156,7 +176,8 @@ const I18N = {
     themeDark:  'Escuro',
     lineConn:  'CONEX\u00c3O EM LINHA',
     arrowConn: 'CONEX\u00c3O EM SETA',
-    // entity type names
+    uploadImage: 'Carregar Imagem',
+    resetIcon:   'Resetar \u00cdcone',
     entity_person:       'Pessoa',
     entity_organization: 'Organiza\u00e7\u00e3o',
     entity_phone:        'Telefone',
@@ -174,24 +195,21 @@ function t(key) {
   return I18N[currentLang][key] ?? I18N.en[key] ?? key;
 }
 
-/** Returns the localized display name for an entity type id. */
 function getEntityLocalName(typeId) {
   return t(`entity_${typeId}`);
 }
 
 function applyLang() {
-  // data-i18n spans
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
     el.textContent = t(key);
   });
-  // static IDs
   $('palette-heading').textContent   = t('paletteHeading');
   $('canvas-hint').innerHTML         = t('canvasHint');
   $('insp-empty-text').textContent   = t('inspEmptyText');
   $('lbl-name').textContent          = t('lblName');
   $('lbl-type').textContent          = t('lblType');
-  // edge label — preserve the <span> child
+  $('lbl-size').textContent          = t('lblSize');
   const lblEdge = $('lbl-edge-label');
   lblEdge.firstChild.textContent     = t('lblEdgeLabel') + ' ';
   $('lbl-edge-optional').textContent = t('lblEdgeOptional');
@@ -199,14 +217,10 @@ function applyLang() {
   $('sb-hints').textContent          = t('sbHints');
   $('ii-name').placeholder           = t('iiNamePlaceholder');
   $('ie-label').placeholder          = t('ieLabelPlaceholder');
-  // update theme label
   $('btn-theme-label').textContent   = isLight ? t('themeDark') : t('themeLight');
-  // refresh entity names in palette and type select
   refreshPaletteNames();
   refreshTypeSelect();
-  // re-apply mode pill if active
   if (mode !== 'select') updateModePill(connectSrc ? 'target' : 'source');
-  // refresh open inspector panels
   if (selectedEl?.isNode()) showNodeInspector(selectedEl);
   if (selectedEl?.isEdge()) showEdgeInspector(selectedEl);
 }
@@ -222,12 +236,18 @@ function toggleLang() {
 // ─────────────────────────────────────────────────────────────────
 function applyCyTheme() {
   cy.style(buildCyStyle()).update();
+  // Re-render text-based icons so they use the right color
+  cy.nodes().forEach(node => {
+    const customText = node.data('customText');
+    if (customText) {
+      node.data('iconSvg', textSvg(customText, !isLight));
+    }
+  });
 }
 
 function toggleTheme() {
   isLight = !isLight;
   document.documentElement.classList.toggle('light', isLight);
-  // Give CSS time to compute new custom properties before reading them
   requestAnimationFrame(() => {
     applyCyTheme();
     $('btn-theme').firstChild.textContent = isLight ? '🌙 ' : '☀ ';
@@ -257,19 +277,19 @@ function initCy() {
 }
 
 function buildCyStyle() {
-  // Read CSS custom properties so both themes are reflected automatically
+  // ── Color tokens ──────────────────────────────────────
   const nodeBg      = getCyTokenSafe('--cy-node-bg',      isLight ? '#f0f0f0' : '#161616');
   const nodeBdr     = getCyTokenSafe('--cy-node-border',  isLight ? '#cccccc' : '#353535');
-  const nodeLbl     = getCyTokenSafe('--cy-node-label',   '#888888');
+  const nodeLbl     = isLight ? '#333333' : '#ffffff';   // 5. white labels in dark mode
   const nodeSelBg   = getCyTokenSafe('--cy-node-sel-bg',  isLight ? '#e4e4e4' : '#1c1c1c');
   const nodeSelBdr  = getCyTokenSafe('--cy-node-sel-bdr', isLight ? '#111111' : '#ffffff');
-  const nodeSelLbl  = getCyTokenSafe('--cy-node-sel-lbl', isLight ? '#111111' : '#ffffff');
-  const edgeColor   = getCyTokenSafe('--cy-edge-color',   isLight ? '#bbbbbb' : '#383838');
-  const edgeLbl     = getCyTokenSafe('--cy-edge-label',   isLight ? '#999999' : '#505050');
-  const edgeTextBg  = getCyTokenSafe('--cy-edge-textbg',  isLight ? '#f0f0f0' : '#0c0c0c');
-  const edgeSel     = getCyTokenSafe('--cy-edge-sel',     isLight ? '#111111' : '#ffffff');
-  const nodeHoverBdr = isLight ? '#777777' : '#666666';
-  const edgeHover    = isLight ? '#888888' : '#727272';
+  const nodeSelLbl  = isLight ? '#111111' : '#ffffff';
+  const edgeColor   = isLight ? '#bbbbbb' : '#ffffff';   // 5. white edges in dark mode
+  const edgeLbl     = isLight ? '#888888' : '#dddddd';   // 5. bright edge labels in dark
+  const edgeTextBg  = isLight ? '#f0f0f0' : '#0c0c0c';
+  const edgeSel     = isLight ? '#111111' : '#ffffff';
+  const nodeHoverBdr = isLight ? '#777777' : '#aaaaaa';
+  const edgeHover    = isLight ? '#888888' : '#ffffff';
 
   return [
     /* ── Nodes (default) ── */
@@ -295,11 +315,16 @@ function buildCyStyle() {
         'text-margin-y':         8,
         'text-wrap':             'wrap',
         'text-max-width':        92,
-        'width':'data(size)',
-        'height':'data(size)',
+        'width':  'data(size)',
+        'height': 'data(size)',
         'shape':                 'round-rectangle',
         'transition-property':   'border-color, border-width, background-color, color',
         'transition-duration':   '110ms',
+        'z-index':                 9999,
+        'text-background-color':   isLight ? '#f0f0f0' : '#0c0c0c',
+        'text-background-opacity': 1,
+        'text-background-padding': '4px',
+        'text-background-shape':   'round-rectangle',
       }
     },
     /* ── Node hover ── */
@@ -308,7 +333,7 @@ function buildCyStyle() {
       style: {
         'border-color': nodeHoverBdr,
         'border-width': 2,
-        'color':        isLight ? '#333333' : '#bbbbbb',
+        'color':        isLight ? '#333333' : '#ffffff',
       }
     },
     /* ── Node selected ── */
@@ -350,6 +375,7 @@ function buildCyStyle() {
         'source-arrow-shape':      'none',
         'transition-property':     'line-color, width',
         'transition-duration':     '110ms',
+        'z-index':                 1,
       }
     },
     /* ── Edge hover ── */
@@ -357,7 +383,7 @@ function buildCyStyle() {
       selector: 'edge:hover',
       style: {
         'line-color': edgeHover,
-        'color':      isLight ? '#666666' : '#888888',
+        'color':      isLight ? '#555555' : '#ffffff',
         'width':      2,
       }
     },
@@ -366,7 +392,7 @@ function buildCyStyle() {
       selector: 'edge:selected',
       style: {
         'line-color':          edgeSel,
-        'color':               isLight ? '#333333' : '#cccccc',
+        'color':               isLight ? '#333333' : '#ffffff',
         'width':               2,
         'target-arrow-color':  edgeSel,
       }
@@ -390,7 +416,6 @@ function buildCyStyle() {
   ];
 }
 
-/** Safe CSS variable reader — falls back to default if var not yet computed. */
 function getCyTokenSafe(varName, fallback) {
   const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
   return v || fallback;
@@ -400,39 +425,29 @@ function getCyTokenSafe(varName, fallback) {
 //  CYTOSCAPE EVENT BINDINGS
 // ─────────────────────────────────────────────────────────────────
 function bindCyEvents() {
-  /* Tap a node */
   cy.on('tap', 'node', e => {
-    if (mode !== 'select') {
-      handleConnectTap(e.target);
-      return;
-    }
+    if (mode !== 'select') { handleConnectTap(e.target); return; }
     selectElement(e.target);
     showNodeInspector(e.target);
   });
 
-  /* Tap an edge */
   cy.on('tap', 'edge', e => {
     if (mode !== 'select') return;
     selectElement(e.target);
     showEdgeInspector(e.target);
   });
 
-  /* Tap empty canvas */
   cy.on('tap', e => {
     if (e.target !== cy) return;
-    // Cancel pending connection
     if (connectSrc) {
       connectSrc.removeClass('connect-src');
       connectSrc = null;
       updateModePill('source');
       return;
     }
-    if (mode === 'select') {
-      clearSelection();
-    }
+    if (mode === 'select') clearSelection();
   });
 
-  /* Double-click a node → focus name field in inspector */
   cy.on('dblclick', 'node', e => {
     if (mode !== 'select') return;
     selectElement(e.target);
@@ -440,8 +455,77 @@ function bindCyEvents() {
     setTimeout(focusNameInput, 60);
   });
 
-  /* Save history after node drag */
-  cy.on('dragfree', 'node', () => pushHistory());
+  cy.on('dragfree', 'node', () => {
+    clearGuides();
+    pushHistory();
+  });
+
+  // ── Alignment guides on drag ──────────────────────────
+  cy.on('drag', 'node', e => {
+    if (!guidesEnabled) return;
+    const dragged = e.target;
+    const pos = dragged.position();
+    const zoom = cy.zoom();
+    const snapThreshold = 10 / zoom; // 10 pixels on screen
+
+    const others = cy.nodes().filter(n => n.id() !== dragged.id());
+    const guides = [];
+    let snappedY = false;
+    let snappedX = false;
+
+    others.forEach(other => {
+      const op = other.position();
+      // Horizontal guide (same Y)
+      if (!snappedY && Math.abs(pos.y - op.y) < snapThreshold) {
+        dragged.position('y', op.y);
+        guides.push({ type: 'h', model: op.y });
+        snappedY = true;
+      }
+      // Vertical guide (same X)
+      if (!snappedX && Math.abs(pos.x - op.x) < snapThreshold) {
+        dragged.position('x', op.x);
+        guides.push({ type: 'v', model: op.x });
+        snappedX = true;
+      }
+    });
+
+    renderGuides(guides);
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  ALIGNMENT GUIDES (DOM overlay)
+// ─────────────────────────────────────────────────────────────────
+function modelToScreenCoords(modelX, modelY) {
+  const pan  = cy.pan();
+  const zoom = cy.zoom();
+  return {
+    x: modelX * zoom + pan.x,
+    y: modelY * zoom + pan.y,
+  };
+}
+
+function renderGuides(guides) {
+  const container = $('align-guides');
+  container.innerHTML = '';
+  if (!guidesEnabled || !guides.length) return;
+
+  guides.forEach(g => {
+    const line = document.createElement('div');
+    line.className = 'guide-line ' + g.type;
+    if (g.type === 'h') {
+      const sc = modelToScreenCoords(0, g.model);
+      line.style.top = sc.y + 'px';
+    } else {
+      const sc = modelToScreenCoords(g.model, 0);
+      line.style.left = sc.x + 'px';
+    }
+    container.appendChild(line);
+  });
+}
+
+function clearGuides() {
+  $('align-guides').innerHTML = '';
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -449,12 +533,10 @@ function bindCyEvents() {
 // ─────────────────────────────────────────────────────────────────
 function handleConnectTap(node) {
   if (!connectSrc) {
-    // Set source
     connectSrc = node;
     node.addClass('connect-src');
     updateModePill('target');
   } else {
-    // Set target and create edge
     if (connectSrc.id() !== node.id()) {
       createEdge(connectSrc, node, mode);
       pushHistory();
@@ -483,7 +565,6 @@ function createEdge(src, tgt, type) {
 //  ADD ENTITY (from palette click)
 // ─────────────────────────────────────────────────────────────────
 function addEntityFromPalette(typeId) {
-  // Switch back to select mode first
   setMode('select');
 
   const type = getType(typeId);
@@ -491,7 +572,6 @@ function addEntityFromPalette(typeId) {
   const cx   = (ext.x1 + ext.x2) / 2;
   const cy_  = (ext.y1 + ext.y2) / 2;
 
-  // Auto-number: "Person", "Person 2", "Person 3" … (localized)
   const existing  = cy.nodes(`[type="${typeId}"]`).length;
   const localName = getEntityLocalName(typeId);
   const defName   = existing === 0 ? localName : `${localName} ${existing + 1}`;
@@ -503,17 +583,13 @@ function addEntityFromPalette(typeId) {
 
   pushHistory();
 
-  // Select the new node and open inspector
   cy.elements().unselect();
   node.select();
   selectedEl = node;
   showNodeInspector(node);
   updateToolbar();
 
-  // Pan canvas to newly added node
   cy.animate({ center: { eles: node }, duration: 160 });
-
-  // Auto-focus name input so user can immediately type
   setTimeout(focusNameInput, 220);
 }
 
@@ -525,9 +601,11 @@ function addNodeToGraph(typeId, name, position) {
     data: {
       id,
       name,
-      type:    typeId,
-      iconSvg: getIconUri(type),
-      size:68
+      type:      typeId,
+      iconSvg:   getIconUri(type),
+      customImg: null,   // base64 or URL set by user
+      customText: null,  // text/emoji set by user
+      size:      68,
     },
     position,
   });
@@ -556,7 +634,6 @@ function clearSelection() {
 //  MODE MANAGEMENT
 // ─────────────────────────────────────────────────────────────────
 function setMode(newMode) {
-  // Cancel any in-progress connection
   if (connectSrc) {
     connectSrc.removeClass('connect-src');
     connectSrc = null;
@@ -571,9 +648,7 @@ function setMode(newMode) {
   const cyEl = $('cy');
   cyEl.style.cursor = mode !== 'select' ? 'crosshair' : '';
 
-  // Prevent node dragging while in connect modes
   cy.autoungrabify(mode !== 'select');
-
   updateModePill('source');
 
   if (mode !== 'select') {
@@ -586,10 +661,7 @@ function setMode(newMode) {
 
 function updateModePill(step) {
   const pill = $('mode-pill');
-  if (mode === 'select') {
-    pill.classList.remove('visible');
-    return;
-  }
+  if (mode === 'select') { pill.classList.remove('visible'); return; }
   if (mode === 'line') {
     pill.textContent = step === 'target' ? t('modeLineTgt') : t('modeLineSrc');
   } else {
@@ -612,12 +684,36 @@ function showNodeInspector(node) {
   $('insp-empty').style.display = 'none';
   $('insp-node').classList.add('visible');
   $('insp-edge').classList.remove('visible');
-  $('ii-size').value=node.data('size')||68;
-  $('ii-icon').textContent  = type.icon;
+  $('ii-size').value = node.data('size') || 68;
+
+  // Update icon display in inspector head
+  const iconEl = $('ii-icon');
+  const customImg = node.data('customImg');
+  if (customImg) {
+    iconEl.innerHTML = `<img src="${customImg}" alt="icon">`;
+  } else {
+    iconEl.innerHTML = '';
+    iconEl.textContent = type.icon;
+  }
+
   $('ii-kind').textContent  = getEntityLocalName(type.id).toUpperCase();
   $('ii-title').textContent = node.data('name') || '—';
   $('ii-name').value        = node.data('name') || '';
   $('ii-type').value        = node.data('type') || 'person';
+
+  // Populate custom icon fields
+  $('ii-text-icon').value    = node.data('customText') || '';
+  $('ii-flaticon-url').value = node.data('customImg')?.startsWith('http') ? node.data('customImg') : '';
+
+  // Show preview if custom image
+  const preview = $('upload-preview');
+  if (customImg) {
+    preview.src = customImg;
+    preview.classList.add('visible');
+  } else {
+    preview.src = '';
+    preview.classList.remove('visible');
+  }
 }
 
 function showEdgeInspector(edge) {
@@ -637,6 +733,126 @@ function focusNameInput() {
   const inp = $('ii-name');
   inp.focus();
   inp.select();
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  CUSTOM NODE ICON
+// ─────────────────────────────────────────────────────────────────
+
+/** Apply an image URL (data: or https:) as the node icon */
+function applyNodeImage(node, url) {
+  node.data('iconSvg', url);
+  node.data('customImg', url);
+  node.data('customText', null);
+
+  // Update inspector preview
+  const preview = $('upload-preview');
+  preview.src = url;
+  preview.classList.add('visible');
+
+  const iconEl = $('ii-icon');
+  iconEl.innerHTML = `<img src="${url}" alt="icon">`;
+
+  pushHistory();
+}
+
+/** Apply a text/emoji string as the node icon */
+function applyNodeText(node, text) {
+  if (!text.trim()) return;
+  const svg = textSvg(text.trim(), !isLight);
+  node.data('iconSvg', svg);
+  node.data('customText', text.trim());
+  node.data('customImg', null);
+
+  const preview = $('upload-preview');
+  preview.src = '';
+  preview.classList.remove('visible');
+
+  const type = getType(node.data('type'));
+  const iconEl = $('ii-icon');
+  iconEl.innerHTML = '';
+  iconEl.textContent = text.trim();
+
+  pushHistory();
+}
+
+/** Reset node icon to default entity type icon */
+function resetNodeIcon(node) {
+  const type = getType(node.data('type'));
+  node.data('iconSvg', getIconUri(type));
+  node.data('customImg', null);
+  node.data('customText', null);
+
+  const preview = $('upload-preview');
+  preview.src = '';
+  preview.classList.remove('visible');
+
+  const iconEl = $('ii-icon');
+  iconEl.innerHTML = '';
+  iconEl.textContent = type.icon;
+  $('ii-text-icon').value = '';
+  $('ii-flaticon-url').value = '';
+
+  pushHistory();
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  ALIGNMENT — ALIGN & DISTRIBUTE
+// ─────────────────────────────────────────────────────────────────
+
+/** Get currently selected nodes (falls back to all nodes if none selected) */
+function getTargetNodes() {
+  const sel = cy.nodes(':selected');
+  return sel.length >= 2 ? sel : cy.nodes();
+}
+
+/** Align selected nodes to same Y (horizontal line) */
+function alignHorizontal() {
+  const nodes = getTargetNodes();
+  if (nodes.length < 2) { showToast('Select ≥ 2 entities first'); return; }
+  // Use median Y to minimise movement
+  const ys = nodes.map(n => n.position('y')).sort((a, b) => a - b);
+  const medY = ys[Math.floor(ys.length / 2)];
+  nodes.forEach(n => n.position('y', medY));
+  pushHistory();
+  showToast('Aligned horizontally');
+}
+
+/** Align selected nodes to same X (vertical column) */
+function alignVertical() {
+  const nodes = getTargetNodes();
+  if (nodes.length < 2) { showToast('Select ≥ 2 entities first'); return; }
+  const xs = nodes.map(n => n.position('x')).sort((a, b) => a - b);
+  const medX = xs[Math.floor(xs.length / 2)];
+  nodes.forEach(n => n.position('x', medX));
+  pushHistory();
+  showToast('Aligned vertically');
+}
+
+/** Distribute nodes evenly on the X axis */
+function distributeHorizontal() {
+  const nodes = getTargetNodes();
+  if (nodes.length < 3) { showToast('Select ≥ 3 entities first'); return; }
+  const sorted = [...nodes].sort((a, b) => a.position('x') - b.position('x'));
+  const minX = sorted[0].position('x');
+  const maxX = sorted[sorted.length - 1].position('x');
+  const gap  = (maxX - minX) / (sorted.length - 1);
+  sorted.forEach((n, i) => n.position('x', minX + gap * i));
+  pushHistory();
+  showToast('Distributed horizontally');
+}
+
+/** Distribute nodes evenly on the Y axis */
+function distributeVertical() {
+  const nodes = getTargetNodes();
+  if (nodes.length < 3) { showToast('Select ≥ 3 entities first'); return; }
+  const sorted = [...nodes].sort((a, b) => a.position('y') - b.position('y'));
+  const minY = sorted[0].position('y');
+  const maxY = sorted[sorted.length - 1].position('y');
+  const gap  = (maxY - minY) / (sorted.length - 1);
+  sorted.forEach((n, i) => n.position('y', minY + gap * i));
+  pushHistory();
+  showToast('Distributed vertically');
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -663,7 +879,6 @@ function deleteSelected() {
 // ─────────────────────────────────────────────────────────────────
 function pushHistory() {
   const snap = JSON.stringify(cy.elements().jsons());
-  // Truncate any forward history
   history = history.slice(0, histIdx + 1);
   history.push(snap);
   if (history.length > MAX_HIST) history.shift();
@@ -684,10 +899,7 @@ function redo() {
 }
 
 function applySnapshot(snap) {
-  if (connectSrc) {
-    connectSrc.removeClass('connect-src');
-    connectSrc = null;
-  }
+  if (connectSrc) { connectSrc.removeClass('connect-src'); connectSrc = null; }
   selectedEl = null;
   cy.elements().remove();
   cy.add(JSON.parse(snap));
@@ -717,12 +929,15 @@ function updateStatus() {
 }
 
 // ─────────────────────────────────────────────────────────────────
-//  EXPORT — PNG
+//  EXPORT — PNG  (4. correct background color)
 // ─────────────────────────────────────────────────────────────────
 function exportPNG() {
   if (!cy.elements().length) { showToast('Add some entities first!'); return; }
 
-  const imgData = cy.png({ scale: 3, bg: '#0c0c0c', full: true });
+  // Use current theme background color
+  const bgColor = isLight ? '#f0f0f0' : '#0c0c0c';
+
+  const imgData = cy.png({ scale: 3, bg: bgColor, full: true });
   const a = document.createElement('a');
   a.href     = imgData;
   a.download = `schema_${Date.now()}.png`;
@@ -736,11 +951,8 @@ function exportPDF() {
   if (!cy.elements().length) { showToast('Add some entities first!'); return; }
 
   const { jsPDF }  = window.jspdf;
-  const imgData = cy.png({
-    scale:2.5,
-    bg:'#ffffff',
-    full:true
-});
+  const bgColor = isLight ? '#ffffff' : '#0c0c0c';
+  const imgData = cy.png({ scale: 2.5, bg: bgColor, full: true });
   const bb         = cy.elements().boundingBox();
   const isLandscape = bb.w >= bb.h;
 
@@ -748,33 +960,34 @@ function exportPDF() {
   const pW   = doc.internal.pageSize.getWidth();
   const pH   = doc.internal.pageSize.getHeight();
 
-  // Dark page background
-  doc.setFillColor(255,255,255);
+  if (isLight) {
+    doc.setFillColor(255,255,255);
+  } else {
+    doc.setFillColor(12,12,12);
+  }
   doc.rect(0, 0, pW, pH, 'F');
 
-  // Header: logo
-  doc.setTextColor(0,0,0);
+  const textColor = isLight ? [0,0,0] : [240,240,240];
+  const dimColor  = isLight ? [80,80,80] : [180,180,180];
+
+  doc.setTextColor(...textColor);
   doc.setFontSize(14);
   doc.setFont('helvetica', 'bold');
   doc.text('SCHEMA', 14, 17);
 
-  // Header: subtitle / date
   doc.setFontSize(8);
   doc.setFont('helvetica', 'normal');
-  doc.setTextColor(80,80,80);
+  doc.setTextColor(...dimColor);
   const dateStr = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
   doc.text(`Visual Link Schema  ·  ${dateStr}`, 14, 23.5);
 
-  // Header: stats (right-aligned)
   const n = cy.nodes().length;
   const e = cy.edges().length;
   doc.text(`${n} ${n === 1 ? 'entity' : 'entities'}  ·  ${e} ${e === 1 ? 'connection' : 'connections'}`, pW - 14, 23.5, { align: 'right' });
 
-  // Divider
-  doc.setDrawColor(220,220,220);
+  doc.setDrawColor(isLight ? 220 : 50, isLight ? 220 : 50, isLight ? 220 : 50);
   doc.line(14, 27, pW - 14, 27);
 
-  // Graph image
   const margin = 14;
   const imgY   = 31;
   const imgW   = pW - margin * 2;
@@ -806,17 +1019,6 @@ function importFile(file) {
   }
 }
 
-/**
- * Process rows from CSV/XLSX import.
- *
- * Expected columns (case-insensitive, spaces become underscores):
- *   source       — source entity name         (required)
- *   source_type  — entity type id             (optional, default: person)
- *   target       — target entity name         (optional)
- *   target_type  — entity type id             (optional, default: person)
- *   label        — edge label text            (optional)
- *   edge_type    — "arrow" or "line"          (optional, default: line)
- */
 function processRows(rows) {
   if (!rows?.length) { showToast('No data found in file.'); return; }
 
@@ -824,7 +1026,6 @@ function processRows(rows) {
   let newEdges = 0;
 
   rows.forEach(row => {
-    // Normalize keys
     const r = {};
     for (const k in row) {
       r[k.toLowerCase().trim().replace(/\s+/g, '_')] = String(row[k] ?? '').trim();
@@ -839,7 +1040,6 @@ function processRows(rows) {
 
     if (!srcName) return;
 
-    // Find or create source node
     let src = cy.nodes().filter(n => n.data('name') === srcName).first();
     if (!src.length) {
       src = addNodeToGraph(srcType, srcName, {
@@ -849,7 +1049,6 @@ function processRows(rows) {
       newNodes++;
     }
 
-    // Find or create target node (if provided)
     if (tgtName) {
       let tgt = cy.nodes().filter(n => n.data('name') === tgtName).first();
       if (!tgt.length) {
@@ -860,7 +1059,6 @@ function processRows(rows) {
         newNodes++;
       }
 
-      // Avoid duplicate edges
       const dup = cy.edges().some(edge =>
         (edge.data('source') === src.id() && edge.data('target') === tgt.id()) ||
         (edge.data('source') === tgt.id() && edge.data('target') === src.id())
@@ -874,7 +1072,6 @@ function processRows(rows) {
     }
   });
 
-  // Auto-layout after import
   if (newNodes > 0) {
     cy.layout({
       name:              'cose',
@@ -895,14 +1092,14 @@ function processRows(rows) {
 //  TOAST
 // ─────────────────────────────────────────────────────────────────
 function showToast(msg) {
-  const t = document.createElement('div');
-  t.className   = 'toast';
-  t.textContent = msg;
-  document.body.appendChild(t);
-  requestAnimationFrame(() => t.classList.add('show'));
+  const el = document.createElement('div');
+  el.className   = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
   setTimeout(() => {
-    t.classList.remove('show');
-    setTimeout(() => t.remove(), 260);
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 260);
   }, 2200);
 }
 
@@ -911,7 +1108,6 @@ function showToast(msg) {
 // ─────────────────────────────────────────────────────────────────
 function initKeyboard() {
   document.addEventListener('keydown', e => {
-    // Don't capture while typing in form fields
     const tag = document.activeElement?.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
@@ -967,7 +1163,6 @@ function initPalette() {
     const item = document.createElement('div');
     item.className      = 'palette-item';
     item.dataset.typeId = type.id;
-    // icon (custom SVG or emoji text)
     const iconSpan = document.createElement('span');
     iconSpan.className = 'palette-icon';
     if (type.iconUri) {
@@ -980,7 +1175,6 @@ function initPalette() {
     } else {
       iconSpan.textContent = type.icon;
     }
-    // name span (rebuilt on language change)
     const nameSpan = document.createElement('span');
     nameSpan.className = 'palette-name';
     item.append(iconSpan, nameSpan);
@@ -1038,22 +1232,36 @@ function initToolbar() {
   $('file-input').addEventListener('change', e => {
     if (e.target.files[0]) {
       importFile(e.target.files[0]);
-      e.target.value = ''; // allow re-import of same file
+      e.target.value = '';
     }
   });
 
-  // Theme toggle
-  $('btn-theme').onclick = toggleTheme;
+  // ── Alignment buttons ──────────────────────────────────
+  $('btn-align-h').onclick      = alignHorizontal;
+  $('btn-align-v').onclick      = alignVertical;
+  $('btn-distribute-h').onclick = distributeHorizontal;
+  $('btn-distribute-v').onclick = distributeVertical;
 
-  // Language toggle
-  $('btn-lang').onclick = toggleLang;
+  // ── Guides toggle ──────────────────────────────────────
+  $('btn-guides').onclick = () => {
+    guidesEnabled = !guidesEnabled;
+    $('btn-guides').classList.toggle('active', guidesEnabled);
+    if (!guidesEnabled) clearGuides();
+    showToast(guidesEnabled ? 'Alignment guides ON' : 'Alignment guides OFF');
+  };
+  // Guides are ON by default — mark button active
+  $('btn-guides').classList.add('active');
+
+  // Theme & language
+  $('btn-theme').onclick = toggleTheme;
+  $('btn-lang').onclick  = toggleLang;
 }
 
 // ─────────────────────────────────────────────────────────────────
 //  INSPECTOR EVENTS
 // ─────────────────────────────────────────────────────────────────
 function initInspector() {
-  // Node: name input → update canvas label live
+  // Node: name input
   $('ii-name').addEventListener('input', function () {
     if (selectedEl?.isNode()) {
       selectedEl.data('name', this.value);
@@ -1062,20 +1270,29 @@ function initInspector() {
   });
   $('ii-name').addEventListener('change', () => pushHistory());
 
-  // Node: change size
-  $('ii-size').addEventListener('input',function(){
-    if(selectedEl?.isNode()){
-        selectedEl.data('size',Number(this.value));
-    }
-});
+  // Node: size slider
+  $('ii-size').addEventListener('input', function () {
+    if (selectedEl?.isNode()) selectedEl.data('size', Number(this.value));
+  });
+  $('ii-size').addEventListener('change', () => pushHistory());
 
   // Node: type select → swap icon
   $('ii-type').addEventListener('change', function () {
     if (selectedEl?.isNode()) {
-      const t = getType(this.value);
-      selectedEl.data({ type: this.value, iconSvg: emojiSvg(t.icon) });
-      $('ii-icon').textContent = t.icon;
-      $('ii-kind').textContent = t.name.toUpperCase();
+      const tp = getType(this.value);
+      selectedEl.data({
+        type:       this.value,
+        iconSvg:    getIconUri(tp),
+        customImg:  null,
+        customText: null,
+      });
+      const iconEl = $('ii-icon');
+      iconEl.innerHTML = '';
+      iconEl.textContent = tp.icon;
+      $('ii-kind').textContent = tp.name.toUpperCase();
+      $('upload-preview').classList.remove('visible');
+      $('ii-text-icon').value    = '';
+      $('ii-flaticon-url').value = '';
       pushHistory();
     }
   });
@@ -1083,7 +1300,56 @@ function initInspector() {
   // Node: delete
   $('btn-del-node').onclick = deleteSelected;
 
-  // Edge: label input
+  // ── Custom icon: image upload ──────────────────────────
+  $('btn-upload-img').onclick = () => $('node-img-input').click();
+  $('node-img-input').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file || !selectedEl?.isNode()) return;
+    const reader = new FileReader();
+    reader.onload = ev => applyNodeImage(selectedEl, ev.target.result);
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  });
+
+  // ── Custom icon: text/emoji ────────────────────────────
+  $('btn-apply-text-icon').onclick = () => {
+    if (selectedEl?.isNode()) applyNodeText(selectedEl, $('ii-text-icon').value);
+  };
+  $('ii-text-icon').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && selectedEl?.isNode()) applyNodeText(selectedEl, e.target.value);
+  });
+
+  // ── Custom icon: Flaticon URL ──────────────────────────
+  // Accepts both page URLs (flaticon.com/free-icon/name_12345) and
+  // direct CDN URLs (cdn-icons-png.flaticon.com/…).
+  $('btn-apply-flaticon').onclick = () => {
+    let url = $('ii-flaticon-url').value.trim();
+    if (!url) return;
+
+    // Convert Flaticon page URL → CDN URL
+    // Pattern: https://www.flaticon.com/free-icon/NAME_ICONID or …?related_id=ICONID
+    const pageMatch = url.match(/flaticon\.com\/(?:free-icon|br\/free-icon)\/[^_]+_(\d+)/i)
+                   || url.match(/[?&]related_id=(\d+)/i)
+                   || url.match(/flaticon\.com\/.*?[_\/](\d{5,})/i);
+
+    if (pageMatch) {
+      const iconId = pageMatch[1];
+      const folder = Math.floor(parseInt(iconId) / 1000);
+      url = `https://cdn-icons-png.flaticon.com/512/${folder}/${iconId}.png`;
+      $('ii-flaticon-url').value = url;
+      showToast('URL convertida para CDN ✓');
+    }
+
+    if (!url.startsWith('http')) { showToast('URL inválida'); return; }
+    if (selectedEl?.isNode()) applyNodeImage(selectedEl, url);
+  };
+
+  // ── Reset icon ─────────────────────────────────────────
+  $('btn-reset-icon').onclick = () => {
+    if (selectedEl?.isNode()) resetNodeIcon(selectedEl);
+  };
+
+  // Edge: label
   $('ie-label').addEventListener('input', function () {
     if (selectedEl?.isEdge()) selectedEl.data('label', this.value);
   });
@@ -1127,7 +1393,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initInspector();
   initKeyboard();
 
-  // Save initial empty state for undo baseline
   pushHistory();
   updateToolbar();
   updateStatus();
