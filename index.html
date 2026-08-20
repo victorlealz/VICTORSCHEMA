@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="light">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -691,6 +691,24 @@
     ::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 2px; }
 
     /* =========================================================
+       MODAL
+    ========================================================= */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100000;
+    }
+    .modal-content {
+      background: var(--surface); border: 1px solid var(--border-hi);
+      padding: 24px; border-radius: var(--radius); max-width: 400px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    }
+    .modal-content h2 { font-size: 16px; margin-bottom: 12px; }
+    .modal-content p { font-size: 13px; margin-bottom: 10px; color: var(--text-dim); }
+    .modal-content ul { font-size: 13px; color: var(--text); padding-left: 20px; margin-bottom: 15px; }
+    .modal-content li { margin-bottom: 6px; }
+
+    /* =========================================================
        MISC
     ========================================================= */
     #file-input         { display: none; }
@@ -747,14 +765,22 @@
     <div class="tb-group">
       <button class="btn" id="btn-png" title="Export as PNG image">↓ PNG</button>
       <button class="btn" id="btn-pdf" title="Export as PDF">↓ PDF</button>
+      <button class="btn" id="btn-save" title="Save JSON">💾 <span data-i18n="save">Save</span></button>
     </div>
 
     <div class="tb-sep"></div>
 
-    <!-- Import -->
+    <!-- Load -->
     <div class="tb-group">
-      <button class="btn" id="btn-import" title="Import CSV or XLSX">↑ <span data-i18n="import">Import</span></button>
-      <input type="file" id="file-input" accept=".csv,.xlsx,.xls">
+      <button class="btn" id="btn-load" title="Load JSON">📂 <span data-i18n="load">Load</span></button>
+      <input type="file" id="load-input" accept=".json" style="display:none">
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Flaticon -->
+    <div class="tb-group">
+      <button class="btn" id="btn-flaticon-menu" title="Flaticon (Free Icons)" style="color:#1dc1a9">💎 Flaticon</button>
     </div>
 
     <div class="tb-sep"></div>
@@ -811,7 +837,7 @@
           <!-- Name -->
           <div class="form-group">
             <div class="form-label" id="lbl-name">Name</div>
-            <input type="text" class="form-input" id="ii-name" placeholder="…">
+            <textarea class="form-input" id="ii-name" placeholder="…" rows="2" style="resize:vertical"></textarea>
           </div>
 
           <!-- Type -->
@@ -826,6 +852,12 @@
           <div class="form-group">
             <div class="form-label" id="lbl-size">Size</div>
             <input type="range" id="ii-size" class="form-input" min="40" max="180" step="2">
+          </div>
+
+          <!-- Text Size -->
+          <div class="form-group">
+            <div class="form-label" id="lbl-font-size">Text Size</div>
+            <input type="range" id="ii-font-size" class="form-input" min="8" max="48" step="1">
           </div>
 
           <!-- Custom image / icon -->
@@ -876,7 +908,7 @@
         <div class="insp-body">
           <div class="form-group">
             <div class="form-label" id="lbl-edge-label">Label <span id="lbl-edge-optional" style="opacity:.5;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
-            <input type="text" class="form-input" id="ie-label" placeholder="e.g. works_at">
+            <textarea class="form-input" id="ie-label" placeholder="e.g. works_at" rows="2" style="resize:vertical"></textarea>
           </div>
           <div class="form-group">
             <div class="form-label" id="lbl-conntype">Connection type</div>
@@ -905,6 +937,25 @@
   </footer>
 
 </div><!-- /.app -->
+
+<!-- STARTUP MODAL -->
+<div id="startup-modal" class="modal-overlay">
+  <div class="modal-content">
+    <h2>Bem-vindo ao SCHEMA</h2>
+    <p>Funcionalidades Básicas:</p>
+    <ul>
+      <li><strong>Adicionar:</strong> Clique na entidade na paleta à esquerda.</li>
+      <li><strong>Conectar:</strong> Escolha "Linha" ou "Seta" no topo e clique em duas entidades.</li>
+      <li><strong>Editar:</strong> Dê duplo clique na entidade ou conexão para editar seus detalhes.</li>
+      <li><strong>Salvar/Abrir:</strong> Salve o arquivo no botão "Save" e abra-o posteriormente.</li>
+    </ul>
+    <p style="margin-top: 15px; font-size: 11px; color: var(--text-muted); text-align: right;">
+      Autor: <strong>winzip144</strong>
+    </p>
+    <p style="margin-top: 15px; font-weight: 500; text-align: center;">Vai doar um café? ☕</p>
+    <button class="btn active" id="btn-close-modal" style="margin-top: 15px; width: 100%; justify-content: center;">Começar</button>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>

@@ -26,6 +26,7 @@ const PERSON_SVG_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
 );
 
 const ENTITY_TYPES = [
+  { id: 'whatsapp',     name: 'WhatsApp',     icon: '💬', iconUri: 'https://cdn-icons-png.flaticon.com/512/3938/3938041.png' },
   { id: 'person',       name: 'Person',       icon: '👤', iconUri: PERSON_SVG_URI },
   { id: 'organization', name: 'Organization', icon: '🏢' },
   { id: 'phone',        name: 'Phone',        icon: '📱' },
@@ -36,6 +37,7 @@ const ENTITY_TYPES = [
   { id: 'bankaccount',  name: 'Bank Account', icon: '🏦' },
   { id: 'device',       name: 'Device',       icon: '💻' },
   { id: 'ipaddress',    name: 'IP Address',   icon: '🌐' },
+  { id: 'timestamp',    name: 'Timestamp',    icon: '⏱️' },
 ];
 
 // ─────────────────────────────────────────────────────────────────
@@ -49,7 +51,7 @@ let history       = [];         // undo/redo stack (array of JSON strings)
 let histIdx       = -1;
 const MAX_HIST    = 60;
 let currentLang   = 'en';       // 'en' | 'pt'
-let isLight       = false;      // false = dark (default)
+let isLight       = true;       // false = dark, true = light
 let guidesEnabled = true;       // alignment guides active?
 
 // ─────────────────────────────────────────────────────────────────
@@ -104,6 +106,8 @@ const I18N = {
     delete:       'Delete',
     fit:          'Fit',
     import:       'Import',
+    save:         'Save',
+    load:         'Load',
     guides:       'Guides',
     lineLbl:      'Line',
     arrowLbl:     'Arrow',
@@ -115,6 +119,7 @@ const I18N = {
     lblName:          'Name',
     lblType:          'Type',
     lblSize:          'Size',
+    lblFontSize:      'Text Size',
     lblEdgeLabel:     'Label',
     lblEdgeOptional:  '(optional)',
     lblConntype:      'Connection type',
@@ -131,6 +136,7 @@ const I18N = {
     arrowConn: 'ARROW CONNECTION',
     uploadImage: 'Upload Image',
     resetIcon:   'Reset Icon',
+    entity_whatsapp:     'WhatsApp',
     entity_person:       'Person',
     entity_organization: 'Organization',
     entity_phone:        'Phone',
@@ -141,6 +147,7 @@ const I18N = {
     entity_bankaccount:  'Bank Account',
     entity_device:       'Device',
     entity_ipaddress:    'IP Address',
+    entity_timestamp:    'Timestamp',
   },
   pt: {
     select:       'Selecionar',
@@ -151,6 +158,8 @@ const I18N = {
     delete:       'Excluir',
     fit:          'Ajustar',
     import:       'Importar',
+    save:         'Salvar',
+    load:         'Abrir',
     guides:       'Guias',
     lineLbl:      'Linha',
     arrowLbl:     'Seta',
@@ -162,6 +171,7 @@ const I18N = {
     lblName:          'Nome',
     lblType:          'Tipo',
     lblSize:          'Tamanho',
+    lblFontSize:      'Tamanho Texto',
     lblEdgeLabel:     'R\u00f3tulo',
     lblEdgeOptional:  '(opcional)',
     lblConntype:      'Tipo de conex\u00e3o',
@@ -178,6 +188,7 @@ const I18N = {
     arrowConn: 'CONEX\u00c3O EM SETA',
     uploadImage: 'Carregar Imagem',
     resetIcon:   'Resetar \u00cdcone',
+    entity_whatsapp:     'WhatsApp',
     entity_person:       'Pessoa',
     entity_organization: 'Organiza\u00e7\u00e3o',
     entity_phone:        'Telefone',
@@ -188,6 +199,7 @@ const I18N = {
     entity_bankaccount:  'Conta Banc\u00e1ria',
     entity_device:       'Dispositivo',
     entity_ipaddress:    'Endere\u00e7o IP',
+    entity_timestamp:    'Timestamp',
   },
 };
 
@@ -210,6 +222,7 @@ function applyLang() {
   $('lbl-name').textContent          = t('lblName');
   $('lbl-type').textContent          = t('lblType');
   $('lbl-size').textContent          = t('lblSize');
+  if ($('lbl-font-size')) $('lbl-font-size').textContent = t('lblFontSize');
   const lblEdge = $('lbl-edge-label');
   lblEdge.firstChild.textContent     = t('lblEdgeLabel') + ' ';
   $('lbl-edge-optional').textContent = t('lblEdgeOptional');
@@ -307,7 +320,7 @@ function buildCyStyle() {
         'border-width':          1.5,
         'label':                 'data(name)',
         'color':                 nodeLbl,
-        'font-size':             11,
+        'font-size':             'data(fontSize)',
         'font-family':           '"Inter", system-ui, sans-serif',
         'font-weight':           400,
         'text-valign':           'bottom',
@@ -453,6 +466,13 @@ function bindCyEvents() {
     selectElement(e.target);
     showNodeInspector(e.target);
     setTimeout(focusNameInput, 60);
+  });
+
+  cy.on('dblclick', 'edge', e => {
+    if (mode !== 'select') return;
+    selectElement(e.target);
+    showEdgeInspector(e.target);
+    setTimeout(() => { const i = $('ie-label'); i.focus(); i.select(); }, 60);
   });
 
   cy.on('dragfree', 'node', () => {
@@ -606,6 +626,7 @@ function addNodeToGraph(typeId, name, position) {
       customImg: null,   // base64 or URL set by user
       customText: null,  // text/emoji set by user
       size:      68,
+      fontSize:  11,
     },
     position,
   });
@@ -685,6 +706,7 @@ function showNodeInspector(node) {
   $('insp-node').classList.add('visible');
   $('insp-edge').classList.remove('visible');
   $('ii-size').value = node.data('size') || 68;
+  if ($('ii-font-size')) $('ii-font-size').value = node.data('fontSize') || 11;
 
   // Update icon display in inspector head
   const iconEl = $('ii-icon');
@@ -998,6 +1020,34 @@ function exportPDF() {
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  SAVE / LOAD JSON
+// ─────────────────────────────────────────────────────────────────
+function exportJSON() {
+  if (!cy.elements().length) { showToast('Add some entities first!'); return; }
+  const dataStr = JSON.stringify(cy.elements().jsons(), null, 2);
+  const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
+  const a = document.createElement('a');
+  a.href = dataUri;
+  a.download = `schema_${Date.now()}.json`;
+  a.click();
+}
+
+function importJSON(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = JSON.parse(e.target.result);
+      applySnapshot(JSON.stringify(data));
+      pushHistory();
+      showToast('Schema loaded successfully!');
+    } catch(err) {
+      showToast('Error loading JSON');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  IMPORT — CSV / XLSX
 // ─────────────────────────────────────────────────────────────────
 function importFile(file) {
@@ -1228,19 +1278,30 @@ function initToolbar() {
   $('btn-png').onclick    = exportPNG;
   $('btn-pdf').onclick    = exportPDF;
 
-  $('btn-import').onclick = () => $('file-input').click();
-  $('file-input').addEventListener('change', e => {
-    if (e.target.files[0]) {
-      importFile(e.target.files[0]);
-      e.target.value = '';
-    }
-  });
+  if ($('btn-save')) $('btn-save').onclick = exportJSON;
+  if ($('btn-load')) $('btn-load').onclick = () => $('load-input').click();
+  if ($('load-input')) {
+    $('load-input').addEventListener('change', e => {
+      if (e.target.files[0]) {
+        importJSON(e.target.files[0]);
+        e.target.value = '';
+      }
+    });
+  }
+
+  if ($('btn-close-modal')) {
+    $('btn-close-modal').onclick = () => $('startup-modal').style.display = 'none';
+  }
 
   // ── Alignment buttons ──────────────────────────────────
   $('btn-align-h').onclick      = alignHorizontal;
   $('btn-align-v').onclick      = alignVertical;
   $('btn-distribute-h').onclick = distributeHorizontal;
   $('btn-distribute-v').onclick = distributeVertical;
+
+  if ($('btn-flaticon-menu')) {
+    $('btn-flaticon-menu').onclick = () => window.open('https://www.flaticon.com/', '_blank');
+  }
 
   // ── Guides toggle ──────────────────────────────────────
   $('btn-guides').onclick = () => {
@@ -1275,6 +1336,14 @@ function initInspector() {
     if (selectedEl?.isNode()) selectedEl.data('size', Number(this.value));
   });
   $('ii-size').addEventListener('change', () => pushHistory());
+
+  // Node: font size slider
+  if ($('ii-font-size')) {
+    $('ii-font-size').addEventListener('input', function () {
+      if (selectedEl?.isNode()) selectedEl.data('fontSize', Number(this.value));
+    });
+    $('ii-font-size').addEventListener('change', () => pushHistory());
+  }
 
   // Node: type select → swap icon
   $('ii-type').addEventListener('change', function () {
