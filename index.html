@@ -13,6 +13,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://unpkg.com/cytoscape-node-html-label@1.2.2/dist/cytoscape-node-html-label.min.js"></script>
+  <script src="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.js"></script>
+  <link href="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
 
   <style>
     /* =========================================================
@@ -737,15 +740,22 @@
     .wall-color-btn:hover { transform:scale(1.15); }
     .wall-color-btn.active { border-color:var(--text); border-width:2.5px; }
 
-    /* ── Timeline modal ── */
-    .timeline-modal { max-width:700px; max-height:80vh; overflow-y:auto; width:90vw; }
-    .timeline-container { position:relative; padding:20px 10px 20px 40px; }
-    .timeline-container::before { content:''; position:absolute; left:18px; top:0; bottom:0; width:2px; background:var(--border-mid); }
-    .timeline-item { position:relative; margin-bottom:24px; padding-left:24px; }
-    .timeline-item::before { content:''; position:absolute; left:-6px; top:6px; width:12px; height:12px; border-radius:50%; background:var(--accent, #4a9eff); border:2px solid var(--surface); z-index:1; }
-    .timeline-item-title { font-size:13px; font-weight:600; color:var(--text); margin-bottom:2px; }
-    .timeline-item-sub { font-size:11px; color:var(--text-dim); }
-    .timeline-item-connections { font-size:10px; color:var(--text-muted); margin-top:3px; }
+    /* ── Node Description Label ── */
+    .node-desc-label {
+      color: #999999; font-size: 10.5px; text-align: center;
+      margin-top: 24px; max-width: 130px; white-space: pre-wrap;
+      line-height: 1.3; font-family: 'Inter', system-ui, sans-serif;
+      pointer-events: none;
+    }
+
+    /* ── Timeline modal overrides ── */
+    .vis-timeline { border: none; font-family: 'Inter', system-ui, sans-serif; }
+    .vis-item { border-radius: 4px; background-color: var(--surface-3); border-color: var(--border-hi); color: var(--text); font-size: 12px; box-shadow: none; }
+    .vis-item.vis-selected { border-color: var(--accent); background-color: var(--surface-2); }
+    .vis-time-axis .vis-text { color: var(--text-dim); }
+    .vis-time-axis .vis-grid.vis-minor { border-color: var(--border); }
+    .vis-time-axis .vis-grid.vis-major { border-color: var(--border-mid); }
+    .vis-panel.vis-bottom, .vis-panel.vis-center, .vis-panel.vis-left, .vis-panel.vis-right, .vis-panel.vis-top { border-color: var(--border); }
   </style>
 </head>
 <body>
@@ -783,7 +793,6 @@
       <button class="btn btn-align" id="btn-distribute-h" title="Distribute horizontally (equal X spacing)">⇿</button>
       <button class="btn btn-align" id="btn-distribute-v" title="Distribute vertically (equal Y spacing)">↕</button>
       <button class="btn"           id="btn-guides"       title="Toggle alignment guides while dragging">⊹ <span data-i18n="guides">Guides</span></button>
-      <button class="btn"           id="btn-select-all"   title="Select all entities [Ctrl+A]">☑ <span data-i18n="selectAll">All</span></button>
     </div>
 
     <div class="tb-spacer"></div>
@@ -904,7 +913,25 @@
           <!-- Name -->
           <div class="form-group">
             <div class="form-label" id="lbl-name">Name</div>
-            <textarea class="form-input" id="ii-name" placeholder="…" rows="2" style="resize:vertical"></textarea>
+            <textarea class="form-input" id="ii-name" placeholder="…" rows="1" style="resize:vertical"></textarea>
+          </div>
+
+          <!-- Description -->
+          <div class="form-group">
+            <div class="form-label" id="lbl-desc">Description (Sub-title)</div>
+            <textarea class="form-input" id="ii-desc" placeholder="Light gray subtitle..." rows="2" style="resize:vertical; font-size:11px"></textarea>
+          </div>
+
+          <!-- Dates for Timeline -->
+          <div style="display:flex; gap:10px;">
+            <div class="form-group" style="flex:1">
+              <div class="form-label" id="lbl-start-date">Start Date</div>
+              <input type="date" class="form-input" id="ii-start-date" style="padding:5px; font-size:11px">
+            </div>
+            <div class="form-group" style="flex:1">
+              <div class="form-label" id="lbl-end-date">End Date</div>
+              <input type="date" class="form-input" id="ii-end-date" style="padding:5px; font-size:11px">
+            </div>
           </div>
 
           <!-- Type -->
@@ -1038,12 +1065,10 @@
 
 <!-- TIMELINE MODAL -->
 <div id="timeline-modal" class="modal-overlay" style="display:none">
-  <div class="modal-content timeline-modal">
-    <h2 id="timeline-title">📋 Timeline</h2>
-    <div class="timeline-container" id="timeline-container">
-      <!-- Generated by JS -->
-    </div>
-    <button class="btn active" id="btn-close-timeline" style="margin-top:10px;width:100%;justify-content:center">Close</button>
+  <div class="modal-content" style="max-width:900px; width:95vw; padding:20px;">
+    <h2 id="timeline-title" style="margin-bottom:15px">📋 Timeline</h2>
+    <div id="vis-timeline-container" style="width: 100%; height: 400px; border: 1px solid var(--border); background: var(--surface); border-radius:6px; overflow:hidden;"></div>
+    <button class="btn active" id="btn-close-timeline" style="margin-top:15px;width:100%;justify-content:center">Close</button>
   </div>
 </div>
 

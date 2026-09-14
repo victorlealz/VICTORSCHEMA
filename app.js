@@ -57,6 +57,8 @@ let cleanBgEnabled = false;     // 100% white bg, no details
 let autosaveEnabled = false;    // autosave on/off
 let autosaveTimer   = null;     // setInterval id
 let autosaveMinutes = 10;       // interval in minutes
+let autoSaveHandle  = null;     // FileSystemHandle for autosave
+let timelineObj     = null;     // vis.Timeline instance
 
 // ─────────────────────────────────────────────────────────────────
 //  UTILITIES
@@ -298,11 +300,24 @@ function initCy() {
     userZoomingEnabled:  true,
     userPanningEnabled:  true,
     boxSelectionEnabled: true,
-    selectionType:       'additive',
+    selectionType:       'single',
     minZoom: 0.04,
     maxZoom: 6,
     wheelSensitivity: 0.22,
   });
+
+  // Initialize HTML labels for descriptions
+  cy.nodeHtmlLabel([{
+    query: 'node',
+    halign: 'center',
+    valign: 'bottom',
+    halignBox: 'center',
+    valignBox: 'bottom',
+    tpl: function(data) {
+      if (!data.description) return '<div></div>';
+      return `<div class="node-desc-label">${data.description}</div>`;
+    }
+  }]);
 
   bindCyEvents();
 }
@@ -458,8 +473,26 @@ function getCyTokenSafe(varName, fallback) {
 function bindCyEvents() {
   cy.on('tap', 'node', e => {
     if (mode !== 'select') { handleConnectTap(e.target); return; }
-    selectElement(e.target);
-    showNodeInspector(e.target);
+    
+    // Handle Ctrl/Cmd+Click for multiple selection
+    if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
+      if (e.target.selected()) {
+        e.target.unselect();
+      } else {
+        e.target.select();
+      }
+      selectedEl = cy.nodes(':selected').last();
+      if (!selectedEl.length) selectedEl = null;
+    } else {
+      cy.elements().unselect();
+      e.target.select();
+      selectedEl = e.target;
+    }
+
+    if (selectedEl) showNodeInspector(selectedEl);
+    else showEmpty();
+    
+    updateToolbar();
   });
 
   cy.on('tap', 'edge', e => {
@@ -643,6 +676,9 @@ function addNodeToGraph(typeId, name, position) {
       iconSvg:   getIconUri(type),
       customImg: null,   // base64 or URL set by user
       customText: null,  // text/emoji set by user
+      description: '',
+      startDate: '',
+      endDate: '',
       size:      68,
       fontSize:  11,
     },
@@ -655,13 +691,6 @@ function addNodeToGraph(typeId, name, position) {
 // ─────────────────────────────────────────────────────────────────
 //  SELECTION HELPERS
 // ─────────────────────────────────────────────────────────────────
-function selectElement(el) {
-  cy.elements().unselect();
-  el.select();
-  selectedEl = el;
-  updateToolbar();
-}
-
 function clearSelection() {
   cy.elements().unselect();
   selectedEl = null;
@@ -744,6 +773,11 @@ function showNodeInspector(node) {
   // Populate custom icon fields
   $('ii-text-icon').value    = node.data('customText') || '';
   $('ii-flaticon-url').value = node.data('customImg')?.startsWith('http') ? node.data('customImg') : '';
+
+  // Dates and description
+  if ($('ii-desc')) $('ii-desc').value = node.data('description') || '';
+  if ($('ii-start-date')) $('ii-start-date').value = node.data('startDate') || '';
+  if ($('ii-end-date')) $('ii-end-date').value = node.data('endDate') || '';
 
   // Show preview if custom image
   const preview = $('upload-preview');
@@ -969,6 +1003,29 @@ function updateStatus() {
 }
 
 // ─────────────────────────────────────────────────────────────────
+//  EXPORT HELPERS (Merge description into label for PNG/PDF)
+// ─────────────────────────────────────────────────────────────────
+function prepareForExport() {
+  cy.nodes().forEach(n => {
+    const desc = n.data('description');
+    if (desc) {
+      n.data('originalName', n.data('name'));
+      n.data('name', n.data('name') + '\n\n' + desc);
+    }
+  });
+}
+
+function restoreAfterExport() {
+  cy.nodes().forEach(n => {
+    const orig = n.data('originalName');
+    if (orig !== undefined) {
+      n.data('name', orig);
+      n.removeData('originalName');
+    }
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────
 //  EXPORT — PNG  (4. correct background color)
 // ─────────────────────────────────────────────────────────────────
 function exportPNG() {
@@ -977,7 +1034,10 @@ function exportPNG() {
   // Use current theme background color
   const bgColor = isLight ? '#f0f0f0' : '#0c0c0c';
 
+  prepareForExport();
   const imgData = cy.png({ scale: 3, bg: bgColor, full: true });
+  restoreAfterExport();
+  
   const a = document.createElement('a');
   a.href     = imgData;
   a.download = `schema_${Date.now()}.png`;
@@ -1032,6 +1092,11 @@ function exportPDF() {
   const imgY   = 31;
   const imgW   = pW - margin * 2;
   const imgH   = pH - imgY - margin;
+  
+  prepareForExport();
+  const imgData = cy.png({ scale: 2.5, bg: bgColor, full: true });
+  restoreAfterExport();
+
   doc.addImage(imgData, 'PNG', margin, imgY, imgW, imgH, undefined, 'FAST');
 
   doc.save(`schema_${Date.now()}.pdf`);
@@ -1211,6 +1276,17 @@ function initKeyboard() {
       case 'f': case 'F':
         cy.fit(undefined, 44);
         break;
+      
+      case 'a': case 'A':
+        if (ctrl) {
+          e.preventDefault();
+          setMode('select');
+          cy.nodes().select();
+          updateToolbar();
+        } else {
+          setMode('arrow');
+        }
+        break;
 
       case 'z':
         if (ctrl) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
@@ -1331,14 +1407,6 @@ function initToolbar() {
   // Guides are ON by default — mark button active
   $('btn-guides').classList.add('active');
 
-  // ── Select All ──────────────────────────────────────
-  $('btn-select-all').onclick = () => {
-    setMode('select');
-    cy.nodes().select();
-    showToast(currentLang === 'pt' ? 'Todas as entidades selecionadas' : 'All entities selected');
-    updateToolbar();
-  };
-
   // ── Clean Background toggle ────────────────────────
   $('toggle-clean-bg').onchange = function() {
     cleanBgEnabled = this.checked;
@@ -1356,13 +1424,17 @@ function initToolbar() {
   };
 
   // ── Autosave toggle ────────────────────────────────
-  $('toggle-autosave').onchange = function() {
+  $('toggle-autosave').onchange = async function() {
     autosaveEnabled = this.checked;
-    setupAutosave();
-    showToast(autosaveEnabled
-      ? (currentLang === 'pt' ? `Salvamento automático: ${autosaveMinutes}min` : `Autosave: every ${autosaveMinutes}min`)
-      : (currentLang === 'pt' ? 'Salvamento automático desativado' : 'Autosave OFF')
-    );
+    if (autosaveEnabled) {
+      await setupAutosave();
+      if (autosaveEnabled) { // check again in case user cancelled picker
+        showToast(currentLang === 'pt' ? `Salvamento automático: ${autosaveMinutes}min` : `Autosave: every ${autosaveMinutes}min`);
+      }
+    } else {
+      if (autosaveTimer) { clearInterval(autosaveTimer); autosaveTimer = null; }
+      showToast(currentLang === 'pt' ? 'Salvamento automático desativado' : 'Autosave OFF');
+    }
   };
   $('autosave-interval').onchange = function() {
     autosaveMinutes = Number(this.value);
@@ -1403,6 +1475,26 @@ function initInspector() {
       if (selectedEl?.isNode()) selectedEl.data('fontSize', Number(this.value));
     });
     $('ii-font-size').addEventListener('change', () => pushHistory());
+  }
+
+  // Node: description & dates
+  if ($('ii-desc')) {
+    $('ii-desc').addEventListener('input', function() {
+      if (selectedEl?.isNode()) selectedEl.data('description', this.value);
+    });
+    $('ii-desc').addEventListener('change', () => pushHistory());
+  }
+  if ($('ii-start-date')) {
+    $('ii-start-date').addEventListener('input', function() {
+      if (selectedEl?.isNode()) selectedEl.data('startDate', this.value);
+    });
+    $('ii-start-date').addEventListener('change', () => pushHistory());
+  }
+  if ($('ii-end-date')) {
+    $('ii-end-date').addEventListener('input', function() {
+      if (selectedEl?.isNode()) selectedEl.data('endDate', this.value);
+    });
+    $('ii-end-date').addEventListener('change', () => pushHistory());
   }
 
   // Node: type select → swap icon
@@ -1551,20 +1643,49 @@ document.addEventListener('DOMContentLoaded', () => {
 // ─────────────────────────────────────────────────────────────────
 //  AUTOSAVE
 // ─────────────────────────────────────────────────────────────────
-function setupAutosave() {
+async function setupAutosave() {
   if (autosaveTimer) { clearInterval(autosaveTimer); autosaveTimer = null; }
   if (!autosaveEnabled) return;
-  autosaveTimer = setInterval(() => {
+
+  // Ask for file handle on first activation so we can overwrite silently
+  try {
+    if (!autoSaveHandle && window.showSaveFilePicker) {
+      autoSaveHandle = await window.showSaveFilePicker({
+        suggestedName: 'schema.json',
+        types: [{ description: 'JSON File', accept: {'application/json': ['.json']} }]
+      });
+    }
+  } catch (err) {
+    // User cancelled file picker
+    $('toggle-autosave').checked = false;
+    autosaveEnabled = false;
+    return;
+  }
+
+  autosaveTimer = setInterval(async () => {
     if (!cy.elements().length) return;
     const dataStr = JSON.stringify(cy.elements().jsons(), null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `schema_autosave_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast(t('autoSaved'));
+    
+    if (autoSaveHandle) {
+      try {
+        const writable = await autoSaveHandle.createWritable();
+        await writable.write(dataStr);
+        await writable.close();
+        showToast(t('autoSaved'));
+      } catch (err) {
+        console.error('Autosave failed:', err);
+      }
+    } else {
+      // Fallback if browser doesn't support File System Access API
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `schema_autosave_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(t('autoSaved'));
+    }
   }, autosaveMinutes * 60 * 1000);
 }
 
@@ -1572,49 +1693,37 @@ function setupAutosave() {
 //  TIMELINE
 // ─────────────────────────────────────────────────────────────────
 function showTimeline() {
-  if (!cy.nodes().length) { showToast(t('noEntities')); return; }
+  const nodesWithDates = cy.nodes().filter(n => n.data('startDate'));
+  if (!nodesWithDates.length) { showToast(currentLang === 'pt' ? 'Adicione Data Inicial nas entidades primeiro.' : 'Set Start Date on entities first.'); return; }
 
-  const container = $('timeline-container');
+  const container = $('vis-timeline-container');
   container.innerHTML = '';
 
-  // Sort nodes by their X position (left-to-right as sequence)
-  const sorted = cy.nodes().sort((a, b) => a.position('x') - b.position('x'));
+  const items = new vis.DataSet(
+    nodesWithDates.map((n, i) => {
+      const type = getType(n.data('type'));
+      return {
+        id: n.id(),
+        content: `<strong>${type.icon} ${n.data('name')}</strong><br><span style="color:var(--text-dim);font-size:10px">${n.data('description') || ''}</span>`,
+        start: n.data('startDate'),
+        end: n.data('endDate') || undefined,
+        title: n.data('description') || n.data('name') // tooltip
+      };
+    })
+  );
 
-  sorted.forEach((node, idx) => {
-    const type = getType(node.data('type'));
-    const name = node.data('name') || '—';
-    const connectedEdges = node.connectedEdges();
-    const connections = [];
-    connectedEdges.forEach(edge => {
-      const other = edge.source().id() === node.id() ? edge.target() : edge.source();
-      const label = edge.data('label') || (edge.data('edgeType') === 'arrow' ? '→' : '—');
-      connections.push(`${label} ${other.data('name') || '?'}`);
-    });
+  const options = {
+    width: '100%',
+    height: '100%',
+    margin: { item: 10, axis: 5 },
+    showCurrentTime: false,
+  };
 
-    const item = document.createElement('div');
-    item.className = 'timeline-item';
-    item.innerHTML = `
-      <div class="timeline-item-title">${type.icon} ${name}</div>
-      <div class="timeline-item-sub">${getEntityLocalName(type.id)} · #${idx + 1}</div>
-      ${connections.length ? `<div class="timeline-item-connections">${connections.join(' · ')}</div>` : ''}
-    `;
-    container.appendChild(item);
-  });
+  if (timelineObj) {
+    timelineObj.destroy();
+  }
+  timelineObj = new vis.Timeline(container, items, options);
 
   $('timeline-title').textContent = t('timelineTitle');
-  $('timeline-modal').style.display = '';
+  $('timeline-modal').style.display = 'flex';
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  CTRL+A — SELECT ALL
-// ─────────────────────────────────────────────────────────────────
-document.addEventListener('keydown', e => {
-  if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
-    const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-    e.preventDefault();
-    setMode('select');
-    cy.nodes().select();
-    updateToolbar();
-  }
-});
