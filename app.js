@@ -53,6 +53,10 @@ const MAX_HIST    = 60;
 let currentLang   = 'en';       // 'en' | 'pt'
 let isLight       = true;       // false = dark, true = light
 let guidesEnabled = true;       // alignment guides active?
+let cleanBgEnabled = false;     // 100% white bg, no details
+let autosaveEnabled = false;    // autosave on/off
+let autosaveTimer   = null;     // setInterval id
+let autosaveMinutes = 10;       // interval in minutes
 
 // ─────────────────────────────────────────────────────────────────
 //  UTILITIES
@@ -136,6 +140,13 @@ const I18N = {
     arrowConn: 'ARROW CONNECTION',
     uploadImage: 'Upload Image',
     resetIcon:   'Reset Icon',
+    selectAll:   'All',
+    cleanBg:     'Clean BG',
+    timeline:    'Timeline',
+    wallColor:   'Wall Color',
+    timelineTitle: '\ud83d\udccb Timeline',
+    autoSaved:   'Auto-saved!',
+    noEntities:  'Add entities first',
     entity_whatsapp:     'WhatsApp',
     entity_person:       'Person',
     entity_organization: 'Organization',
@@ -188,6 +199,13 @@ const I18N = {
     arrowConn: 'CONEX\u00c3O EM SETA',
     uploadImage: 'Carregar Imagem',
     resetIcon:   'Resetar \u00cdcone',
+    selectAll:   'Tudo',
+    cleanBg:     'Fundo Limpo',
+    timeline:    'Linha do Tempo',
+    wallColor:   'Cor da Parede',
+    timelineTitle: '\ud83d\udccb Linha do Tempo',
+    autoSaved:   'Salvo automaticamente!',
+    noEntities:  'Adicione entidades primeiro',
     entity_whatsapp:     'WhatsApp',
     entity_person:       'Pessoa',
     entity_organization: 'Organiza\u00e7\u00e3o',
@@ -311,8 +329,8 @@ function buildCyStyle() {
       style: {
         'background-color':      nodeBg,
         'background-image':      'data(iconSvg)',
-        'background-width':      '78%',
-        'background-height':     '78%',
+        'background-width':      '92%',
+        'background-height':     '92%',
         'background-position-x': '50%',
         'background-position-y': '50%',
         'background-clip':       'none',
@@ -1313,6 +1331,48 @@ function initToolbar() {
   // Guides are ON by default — mark button active
   $('btn-guides').classList.add('active');
 
+  // ── Select All ──────────────────────────────────────
+  $('btn-select-all').onclick = () => {
+    setMode('select');
+    cy.nodes().select();
+    showToast(currentLang === 'pt' ? 'Todas as entidades selecionadas' : 'All entities selected');
+    updateToolbar();
+  };
+
+  // ── Clean Background toggle ────────────────────────
+  $('toggle-clean-bg').onchange = function() {
+    cleanBgEnabled = this.checked;
+    $('canvas-wrap').classList.toggle('clean-bg', cleanBgEnabled);
+    // Also override cytoscape container bg
+    if (cleanBgEnabled) {
+      $('cy').style.background = '#ffffff';
+    } else {
+      $('cy').style.background = '';
+    }
+    showToast(cleanBgEnabled
+      ? (currentLang === 'pt' ? 'Fundo limpo ativado' : 'Clean background ON')
+      : (currentLang === 'pt' ? 'Fundo limpo desativado' : 'Clean background OFF')
+    );
+  };
+
+  // ── Autosave toggle ────────────────────────────────
+  $('toggle-autosave').onchange = function() {
+    autosaveEnabled = this.checked;
+    setupAutosave();
+    showToast(autosaveEnabled
+      ? (currentLang === 'pt' ? `Salvamento automático: ${autosaveMinutes}min` : `Autosave: every ${autosaveMinutes}min`)
+      : (currentLang === 'pt' ? 'Salvamento automático desativado' : 'Autosave OFF')
+    );
+  };
+  $('autosave-interval').onchange = function() {
+    autosaveMinutes = Number(this.value);
+    if (autosaveEnabled) setupAutosave();
+  };
+
+  // ── Timeline ───────────────────────────────────────
+  $('btn-timeline').onclick = showTimeline;
+  $('btn-close-timeline').onclick = () => $('timeline-modal').style.display = 'none';
+
   // Theme & language
   $('btn-theme').onclick = toggleTheme;
   $('btn-lang').onclick  = toggleLang;
@@ -1449,6 +1509,27 @@ function initInspector() {
 
   // Edge: delete
   $('btn-del-edge').onclick = deleteSelected;
+
+  // ── Wall (border) color buttons ────────────────────
+  document.querySelectorAll('.wall-color-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const color = btn.dataset.wallColor;
+      // Update active state
+      document.querySelectorAll('.wall-color-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      // Apply to all selected nodes
+      const sel = cy.nodes(':selected');
+      const targets = sel.length ? sel : (selectedEl?.isNode() ? selectedEl : null);
+      if (targets) {
+        (targets.forEach ? targets : cy.collection().union(targets)).forEach(n => {
+          n.data('wallColor', color);
+          n.style('border-color', color);
+        });
+        pushHistory();
+        showToast(currentLang === 'pt' ? 'Cor da parede alterada' : 'Wall color changed');
+      }
+    });
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -1465,4 +1546,75 @@ document.addEventListener('DOMContentLoaded', () => {
   pushHistory();
   updateToolbar();
   updateStatus();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  AUTOSAVE
+// ─────────────────────────────────────────────────────────────────
+function setupAutosave() {
+  if (autosaveTimer) { clearInterval(autosaveTimer); autosaveTimer = null; }
+  if (!autosaveEnabled) return;
+  autosaveTimer = setInterval(() => {
+    if (!cy.elements().length) return;
+    const dataStr = JSON.stringify(cy.elements().jsons(), null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `schema_autosave_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast(t('autoSaved'));
+  }, autosaveMinutes * 60 * 1000);
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  TIMELINE
+// ─────────────────────────────────────────────────────────────────
+function showTimeline() {
+  if (!cy.nodes().length) { showToast(t('noEntities')); return; }
+
+  const container = $('timeline-container');
+  container.innerHTML = '';
+
+  // Sort nodes by their X position (left-to-right as sequence)
+  const sorted = cy.nodes().sort((a, b) => a.position('x') - b.position('x'));
+
+  sorted.forEach((node, idx) => {
+    const type = getType(node.data('type'));
+    const name = node.data('name') || '—';
+    const connectedEdges = node.connectedEdges();
+    const connections = [];
+    connectedEdges.forEach(edge => {
+      const other = edge.source().id() === node.id() ? edge.target() : edge.source();
+      const label = edge.data('label') || (edge.data('edgeType') === 'arrow' ? '→' : '—');
+      connections.push(`${label} ${other.data('name') || '?'}`);
+    });
+
+    const item = document.createElement('div');
+    item.className = 'timeline-item';
+    item.innerHTML = `
+      <div class="timeline-item-title">${type.icon} ${name}</div>
+      <div class="timeline-item-sub">${getEntityLocalName(type.id)} · #${idx + 1}</div>
+      ${connections.length ? `<div class="timeline-item-connections">${connections.join(' · ')}</div>` : ''}
+    `;
+    container.appendChild(item);
+  });
+
+  $('timeline-title').textContent = t('timelineTitle');
+  $('timeline-modal').style.display = '';
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  CTRL+A — SELECT ALL
+// ─────────────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    e.preventDefault();
+    setMode('select');
+    cy.nodes().select();
+    updateToolbar();
+  }
 });

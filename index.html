@@ -299,6 +299,10 @@
       transition: background-color .2s;
     }
 
+    .canvas-wrap.clean-bg {
+      background: #ffffff !important;
+    }
+
     #cy {
       position: absolute;
       inset: 0;
@@ -713,6 +717,35 @@
     ========================================================= */
     #file-input         { display: none; }
     #node-img-input     { display: none; }
+
+    /* ── Toggle switch ── */
+    .toggle-switch { position:relative; display:inline-block; width:34px; height:18px; flex-shrink:0; }
+    .toggle-switch input { opacity:0; width:0; height:0; }
+    .toggle-switch .slider { position:absolute; cursor:pointer; inset:0; background:var(--border-mid); border-radius:18px; transition:.2s; }
+    .toggle-switch .slider::before { content:''; position:absolute; height:14px; width:14px; left:2px; bottom:2px; background:#fff; border-radius:50%; transition:.2s; }
+    .toggle-switch input:checked + .slider { background:var(--accent, #4a9eff); }
+    .toggle-switch input:checked + .slider::before { transform:translateX(16px); }
+
+    .tb-toggle-label { font-size:10px; color:var(--text-dim); white-space:nowrap; user-select:none; }
+    .tb-toggle-group { display:flex; align-items:center; gap:5px; }
+
+    /* ── Autosave dropdown ── */
+    .autosave-select { font-size:10px; padding:2px 4px; background:var(--surface-2); border:1px solid var(--border-mid); border-radius:3px; color:var(--text-dim); font-family:inherit; cursor:pointer; }
+
+    /* ── Wall color selector ── */
+    .wall-color-btn { width:18px; height:18px; border-radius:50%; border:2px solid var(--border-mid); cursor:pointer; transition:border-color .15s, transform .1s; flex-shrink:0; }
+    .wall-color-btn:hover { transform:scale(1.15); }
+    .wall-color-btn.active { border-color:var(--text); border-width:2.5px; }
+
+    /* ── Timeline modal ── */
+    .timeline-modal { max-width:700px; max-height:80vh; overflow-y:auto; width:90vw; }
+    .timeline-container { position:relative; padding:20px 10px 20px 40px; }
+    .timeline-container::before { content:''; position:absolute; left:18px; top:0; bottom:0; width:2px; background:var(--border-mid); }
+    .timeline-item { position:relative; margin-bottom:24px; padding-left:24px; }
+    .timeline-item::before { content:''; position:absolute; left:-6px; top:6px; width:12px; height:12px; border-radius:50%; background:var(--accent, #4a9eff); border:2px solid var(--surface); z-index:1; }
+    .timeline-item-title { font-size:13px; font-weight:600; color:var(--text); margin-bottom:2px; }
+    .timeline-item-sub { font-size:11px; color:var(--text-dim); }
+    .timeline-item-connections { font-size:10px; color:var(--text-muted); margin-top:3px; }
   </style>
 </head>
 <body>
@@ -750,6 +783,7 @@
       <button class="btn btn-align" id="btn-distribute-h" title="Distribute horizontally (equal X spacing)">⇿</button>
       <button class="btn btn-align" id="btn-distribute-v" title="Distribute vertically (equal Y spacing)">↕</button>
       <button class="btn"           id="btn-guides"       title="Toggle alignment guides while dragging">⊹ <span data-i18n="guides">Guides</span></button>
+      <button class="btn"           id="btn-select-all"   title="Select all entities [Ctrl+A]">☑ <span data-i18n="selectAll">All</span></button>
     </div>
 
     <div class="tb-spacer"></div>
@@ -789,6 +823,39 @@
     <div class="tb-group">
       <button class="btn" id="btn-lang"  title="Switch language / Trocar idioma">PT-BR</button>
       <button class="btn" id="btn-theme" title="Toggle color theme / Alternar tema">☀ <span id="btn-theme-label">Light</span></button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Clean Background Toggle -->
+    <div class="tb-toggle-group">
+      <label class="toggle-switch" title="100% white background">
+        <input type="checkbox" id="toggle-clean-bg">
+        <span class="slider"></span>
+      </label>
+      <span class="tb-toggle-label" id="lbl-clean-bg">Clean BG</span>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Autosave Toggle -->
+    <div class="tb-toggle-group">
+      <label class="toggle-switch" title="Auto-save">
+        <input type="checkbox" id="toggle-autosave">
+        <span class="slider"></span>
+      </label>
+      <select class="autosave-select" id="autosave-interval" title="Auto-save interval">
+        <option value="5">5min</option>
+        <option value="10" selected>10min</option>
+        <option value="30">30min</option>
+      </select>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <!-- Timeline -->
+    <div class="tb-group">
+      <button class="btn" id="btn-timeline" title="Generate event timeline">📋 <span data-i18n="timeline">Timeline</span></button>
     </div>
   </header>
 
@@ -893,6 +960,18 @@
             </div>
           </div>
 
+          <!-- Wall (Border) Color -->
+          <div class="form-group" id="wall-color-group">
+            <div class="form-label" id="lbl-wall-color">Wall Color</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <div class="wall-color-btn active" data-wall-color="#000000" style="background:#000000" title="Black"></div>
+              <div class="wall-color-btn" data-wall-color="#e05555" style="background:#e05555" title="Red"></div>
+              <div class="wall-color-btn" data-wall-color="#30a060" style="background:#30a060" title="Green"></div>
+              <div class="wall-color-btn" data-wall-color="#e8c840" style="background:#e8c840" title="Yellow"></div>
+              <div class="wall-color-btn" data-wall-color="#ffffff" style="background:#ffffff" title="White"></div>
+            </div>
+          </div>
+
         </div>
         <div class="insp-footer">
           <button class="btn danger" id="btn-del-node">✕ <span data-i18n="removeEntity">Remove Entity</span></button>
@@ -954,6 +1033,17 @@
     </p>
     <p style="margin-top: 15px; font-weight: 500; text-align: center;">Vai doar um café? ☕</p>
     <button class="btn active" id="btn-close-modal" style="margin-top: 15px; width: 100%; justify-content: center;">Começar</button>
+  </div>
+</div>
+
+<!-- TIMELINE MODAL -->
+<div id="timeline-modal" class="modal-overlay" style="display:none">
+  <div class="modal-content timeline-modal">
+    <h2 id="timeline-title">📋 Timeline</h2>
+    <div class="timeline-container" id="timeline-container">
+      <!-- Generated by JS -->
+    </div>
+    <button class="btn active" id="btn-close-timeline" style="margin-top:10px;width:100%;justify-content:center">Close</button>
   </div>
 </div>
 
