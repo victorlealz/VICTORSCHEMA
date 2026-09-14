@@ -315,7 +315,8 @@ function initCy() {
     valignBox: 'bottom',
     tpl: function(data) {
       if (!data.description) return '<div></div>';
-      return `<div class="node-desc-label">${data.description}</div>`;
+      const dist = data.descDist ?? 42;
+      return `<div class="node-desc-label" style="margin-top: ${dist}px;">${data.description}</div>`;
     }
   }]);
 
@@ -367,10 +368,9 @@ function buildCyStyle() {
         'transition-property':   'border-color, border-width, background-color, color',
         'transition-duration':   '110ms',
         'z-index':                 9999,
-        'text-background-color':   isLight ? '#f0f0f0' : '#0c0c0c',
-        'text-background-opacity': 1,
-        'text-background-padding': '4px',
-        'text-background-shape':   'round-rectangle',
+        'text-background-opacity': 0,
+        'text-outline-width':      2.5,
+        'text-outline-color':      nodeBg,
       }
     },
     /* ── Node hover ── */
@@ -443,6 +443,23 @@ function buildCyStyle() {
         'target-arrow-color':  edgeSel,
       }
     },
+    /* ── Dashed edges ── */
+    {
+      selector: 'edge[lineStyle="dashed"]',
+      style: {
+        'line-style': 'dashed',
+        'line-dash-pattern': [6, 4]
+      }
+    },
+    /* ── Curved edges ── */
+    {
+      selector: 'edge[curve="curved"]',
+      style: {
+        'curve-style': 'unbundled-bezier',
+        'control-point-distances': [60],
+        'control-point-weights': [0.5]
+      }
+    },
     /* ── Arrow edge variant ── */
     {
       selector: 'edge[edgeType="arrow"]',
@@ -458,6 +475,20 @@ function buildCyStyle() {
     {
       selector: 'edge[edgeType="arrow"]:selected',
       style: { 'target-arrow-color': edgeSel }
+    },
+    /* ── Node with custom wall color ── */
+    {
+      selector: 'node[wallColor]',
+      style: {
+        'border-color': 'data(wallColor)',
+      }
+    },
+    {
+      selector: 'node[wallColor]:selected',
+      style: {
+        'border-color': 'data(wallColor)',
+        'border-width': 2,
+      }
     },
   ];
 }
@@ -681,6 +712,7 @@ function addNodeToGraph(typeId, name, position) {
       endDate: '',
       size:      68,
       fontSize:  11,
+      descDist:  42,
     },
     position,
   });
@@ -754,6 +786,7 @@ function showNodeInspector(node) {
   $('insp-edge').classList.remove('visible');
   $('ii-size').value = node.data('size') || 68;
   if ($('ii-font-size')) $('ii-font-size').value = node.data('fontSize') || 11;
+  if ($('ii-desc-dist')) $('ii-desc-dist').value = node.data('descDist') ?? 42;
 
   // Update icon display in inspector head
   const iconEl = $('ii-icon');
@@ -788,6 +821,12 @@ function showNodeInspector(node) {
     preview.src = '';
     preview.classList.remove('visible');
   }
+
+  // Sync wall color buttons
+  const nodeWallColor = node.data('wallColor') || '#000000';
+  document.querySelectorAll('.wall-color-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.wallColor === nodeWallColor);
+  });
 }
 
 function showEdgeInspector(edge) {
@@ -801,6 +840,14 @@ function showEdgeInspector(edge) {
   $('ie-label').value       = edge.data('label') || '';
   $('ie-line-btn').classList.toggle('active', !isArrow);
   $('ie-arrow-btn').classList.toggle('active', isArrow);
+
+  const isDashed = edge.data('lineStyle') === 'dashed';
+  $('ie-solid-btn').classList.toggle('active', !isDashed);
+  $('ie-dashed-btn').classList.toggle('active', isDashed);
+
+  const isCurved = edge.data('curve') === 'curved';
+  $('ie-straight-btn').classList.toggle('active', !isCurved);
+  $('ie-curved-btn').classList.toggle('active', isCurved);
 }
 
 function focusNameInput() {
@@ -1010,7 +1057,7 @@ function prepareForExport() {
     const desc = n.data('description');
     if (desc) {
       n.data('originalName', n.data('name'));
-      n.data('name', n.data('name') + '\n\n' + desc);
+      n.data('name', n.data('name') + '\n\n\n' + desc);
     }
   });
 }
@@ -1052,7 +1099,6 @@ function exportPDF() {
 
   const { jsPDF }  = window.jspdf;
   const bgColor = isLight ? '#ffffff' : '#0c0c0c';
-  const imgData = cy.png({ scale: 2.5, bg: bgColor, full: true });
   const bb         = cy.elements().boundingBox();
   const isLandscape = bb.w >= bb.h;
 
@@ -1484,6 +1530,18 @@ function initInspector() {
     });
     $('ii-desc').addEventListener('change', () => pushHistory());
   }
+  
+  if ($('ii-desc-dist')) {
+    $('ii-desc-dist').addEventListener('input', function() {
+      if (selectedEl?.isNode()) {
+        selectedEl.data('descDist', Number(this.value));
+        // Force cytoscape-node-html-label to update
+        selectedEl.position(selectedEl.position());
+      }
+    });
+    $('ii-desc-dist').addEventListener('change', () => pushHistory());
+  }
+
   if ($('ii-start-date')) {
     $('ii-start-date').addEventListener('input', function() {
       if (selectedEl?.isNode()) selectedEl.data('startDate', this.value);
@@ -1599,6 +1657,42 @@ function initInspector() {
     }
   };
 
+  $('ie-solid-btn').onclick = () => {
+    if (selectedEl?.isEdge()) {
+      selectedEl.data('lineStyle', 'solid');
+      $('ie-solid-btn').classList.add('active');
+      $('ie-dashed-btn').classList.remove('active');
+      pushHistory();
+    }
+  };
+
+  $('ie-dashed-btn').onclick = () => {
+    if (selectedEl?.isEdge()) {
+      selectedEl.data('lineStyle', 'dashed');
+      $('ie-dashed-btn').classList.add('active');
+      $('ie-solid-btn').classList.remove('active');
+      pushHistory();
+    }
+  };
+
+  $('ie-straight-btn').onclick = () => {
+    if (selectedEl?.isEdge()) {
+      selectedEl.data('curve', 'straight');
+      $('ie-straight-btn').classList.add('active');
+      $('ie-curved-btn').classList.remove('active');
+      pushHistory();
+    }
+  };
+
+  $('ie-curved-btn').onclick = () => {
+    if (selectedEl?.isEdge()) {
+      selectedEl.data('curve', 'curved');
+      $('ie-curved-btn').classList.add('active');
+      $('ie-straight-btn').classList.remove('active');
+      pushHistory();
+    }
+  };
+
   // Edge: delete
   $('btn-del-edge').onclick = deleteSelected;
 
@@ -1615,7 +1709,6 @@ function initInspector() {
       if (targets) {
         (targets.forEach ? targets : cy.collection().union(targets)).forEach(n => {
           n.data('wallColor', color);
-          n.style('border-color', color);
         });
         pushHistory();
         showToast(currentLang === 'pt' ? 'Cor da parede alterada' : 'Wall color changed');

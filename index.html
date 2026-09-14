@@ -743,9 +743,11 @@
     /* ── Node Description Label ── */
     .node-desc-label {
       color: #999999; font-size: 10.5px; text-align: center;
-      margin-top: 24px; max-width: 130px; white-space: pre-wrap;
+      margin-top: 42px; max-width: 130px; white-space: pre-wrap;
       line-height: 1.3; font-family: 'Inter', system-ui, sans-serif;
       pointer-events: none;
+      position: relative;
+      z-index: 99999;
     }
 
     /* ── Timeline modal overrides ── */
@@ -954,6 +956,12 @@
             <input type="range" id="ii-font-size" class="form-input" min="8" max="48" step="1">
           </div>
 
+          <!-- Desc Distance -->
+          <div class="form-group">
+            <div class="form-label" id="lbl-desc-dist">Desc Distance</div>
+            <input type="range" id="ii-desc-dist" class="form-input" min="0" max="150" step="1">
+          </div>
+
           <!-- Custom image / icon -->
           <div class="form-group">
             <div class="form-label" id="lbl-custom-icon">Custom Icon / Image</div>
@@ -1021,6 +1029,20 @@
             <div class="toggle-row">
               <button class="btn active" id="ie-line-btn">— <span data-i18n="lineLbl">Line</span></button>
               <button class="btn"        id="ie-arrow-btn">→ <span data-i18n="arrowLbl">Arrow</span></button>
+            </div>
+          </div>
+          <div class="form-group">
+            <div class="form-label">Line Style</div>
+            <div class="toggle-row">
+              <button class="btn active" id="ie-solid-btn">Solid</button>
+              <button class="btn"        id="ie-dashed-btn">Dashed</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <div class="form-label">Curve</div>
+            <div class="toggle-row">
+              <button class="btn active" id="ie-straight-btn">Straight</button>
+              <button class="btn"        id="ie-curved-btn">Curved</button>
             </div>
           </div>
         </div>
