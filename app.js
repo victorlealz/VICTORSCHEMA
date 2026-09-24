@@ -1,1822 +1,1323 @@
 /**
- * SCHEMA — Visual Link Builder
- * app.js
+ * SCHEMA - Visual Link Builder
+ * Compatible with the supplied index.html and its existing CDN dependencies.
+ * Plain browser JavaScript: no bundler, server, database or new dependency.
+ * Original project: victorlealz/VICTORSCHEMA; original interface credit: winzip144.
  *
- * Modes:  select | line | arrow
- * Panels: palette (left) | canvas (center) | inspector (right)
- *
- * Features added:
- *  1. Alignment guides while dragging
- *  2. Align/distribute buttons (H & V)
- *  3. Custom node icon: image upload, text/emoji, Flaticon URL
- *  4. PNG export uses correct dark/light background
- *  5. Dark mode: labels and edge arrows always white
+ * Fixes: connection selection, editable connection styles, responsive controls.
+ * Additions: free text, CryptoAsset/CriptoAtivo, accessible file dropdown.
+ * Existing graph JSON remains an array of Cytoscape element definitions.
  */
-
 'use strict';
 
-// ─────────────────────────────────────────────────────────────────
-//  ENTITY TYPE DEFINITIONS
-// ─────────────────────────────────────────────────────────────────
+// ENTITY TYPE DEFINITIONS
 const PERSON_SVG_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">' +
   '<circle cx="32" cy="20" r="13" fill="#909090"/>' +
-  '<path d="M6 56 C6 40 18 33 32 33 C46 33 58 40 58 56 Z" fill="#909090"/>' +
-  '</svg>'
+  '<path d="M6 56 C6 40 18 33 32 33 C46 33 58 40 58 56 Z" fill="#909090"/></svg>'
 );
-
+const CRYPTO_SVG_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">' +
+  '<circle cx="32" cy="32" r="27" fill="#f5a623"/>' +
+  '<circle cx="32" cy="32" r="22" fill="none" stroke="#fff" stroke-width="2"/>' +
+  '<path d="M26 18v28m8-28v4m0 20v4M23 23h12c10 0 10 9 0 9H26m0 0h10c11 0 11 10 0 10H23" ' +
+  'fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+);
 const ENTITY_TYPES = [
-  { id: 'whatsapp',     name: 'WhatsApp',     icon: '💬', iconUri: 'https://cdn-icons-png.flaticon.com/512/3938/3938041.png' },
-  { id: 'person',       name: 'Person',       icon: '👤', iconUri: PERSON_SVG_URI },
-  { id: 'organization', name: 'Organization', icon: '🏢' },
-  { id: 'phone',        name: 'Phone',        icon: '📱' },
-  { id: 'email',        name: 'Email',        icon: '✉️'  },
-  { id: 'address',      name: 'Address',      icon: '📍' },
-  { id: 'vehicle',      name: 'Vehicle',      icon: '🚗' },
-  { id: 'event',        name: 'Event',        icon: '📅' },
-  { id: 'bankaccount',  name: 'Bank Account', icon: '🏦' },
-  { id: 'device',       name: 'Device',       icon: '💻' },
-  { id: 'ipaddress',    name: 'IP Address',   icon: '🌐' },
-  { id: 'timestamp',    name: 'Timestamp',    icon: '⏱️' },
+  { id: 'whatsapp', name: 'WhatsApp', icon: '\uD83D\uDCAC', iconUri: 'https://cdn-icons-png.flaticon.com/512/3938/3938041.png' },
+  { id: 'person', name: 'Person', icon: '\uD83D\uDC64', iconUri: PERSON_SVG_URI },
+  { id: 'organization', name: 'Organization', icon: '\uD83C\uDFE2' },
+  { id: 'phone', name: 'Phone', icon: '\uD83D\uDCF1' },
+  { id: 'email', name: 'Email', icon: '\u2709\uFE0F' },
+  { id: 'address', name: 'Address', icon: '\uD83D\uDCCD' },
+  { id: 'vehicle', name: 'Vehicle', icon: '\uD83D\uDE97' },
+  { id: 'event', name: 'Event', icon: '\uD83D\uDCC5' },
+  { id: 'bankaccount', name: 'Bank Account', icon: '\uD83C\uDFE6' },
+  { id: 'cryptoasset', name: 'CriptoAtivo', icon: '\u20BF', iconUri: CRYPTO_SVG_URI },
+  { id: 'device', name: 'Device', icon: '\uD83D\uDCBB' },
+  { id: 'ipaddress', name: 'IP Address', icon: '\uD83C\uDF10' },
+  { id: 'timestamp', name: 'Timestamp', icon: '\u23F1\uFE0F' },
+  { id: 'text', name: 'Text', icon: 'T' },
 ];
 
-// ─────────────────────────────────────────────────────────────────
-//  STATE
-// ─────────────────────────────────────────────────────────────────
-let cy            = null;
-let mode          = 'select';   // 'select' | 'line' | 'arrow'
-let connectSrc    = null;       // source node waiting for target
-let selectedEl    = null;       // currently selected cy element
-let history       = [];         // undo/redo stack (array of JSON strings)
-let histIdx       = -1;
-const MAX_HIST    = 60;
-let currentLang   = 'en';       // 'en' | 'pt'
-let isLight       = true;       // false = dark, true = light
-let guidesEnabled = true;       // alignment guides active?
-let cleanBgEnabled = false;     // 100% white bg, no details
-let autosaveEnabled = false;    // autosave on/off
-let autosaveTimer   = null;     // setInterval id
-let autosaveMinutes = 10;       // interval in minutes
-let autoSaveHandle  = null;     // FileSystemHandle for autosave
-let timelineObj     = null;     // vis.Timeline instance
+// STATE
+let cy = null;
+let mode = 'select';
+let connectSrc = null;
+let selectedEl = null;
+let history = [];
+let histIdx = -1;
+const MAX_HIST = 60;
+let currentLang = 'en';
+let isLight = true;
+let guidesEnabled = true;
+let cleanBgEnabled = false;
+let autosaveEnabled = false;
+let autosaveTimer = null;
+let autosaveMinutes = 10;
+let autoSaveHandle = null;
+let autosaveBusy = false;
+let autosaveSetupVersion = 0;
+let timelineObj = null;
+let resizeObserver = null;
+let resizeFrame = 0;
+let descriptionFrame = 0;
+let selectionFrame = 0;
+let exportBackup = null;
+let booted = false;
+const descriptionElements = new Map();
+const $ = id => document.getElementById(id);
+const uid = () => 'id' + (globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2) + Date.now().toString(36));
+const isCanvasLight = () => isLight || cleanBgEnabled;
+const clamp = (value, min, max, fallback) => {
+  const n = value === null || value === '' || value === undefined ? NaN : Number(value);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+};
+const hexColor = (value, fallback = null) => typeof value === 'string' && /^#[\da-f]{6}$/i.test(value) ? value : fallback;
+const escapeXML = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&apos;' }[c]));
+const on = (id, event, handler) => $(id)?.addEventListener(event, handler);
+const setText = (id, value) => { if ($(id)) $(id).textContent = value; };
+const setValue = (id, value) => { if ($(id)) $(id).value = value; };
+const isTextNode = node => node?.isNode() && node.data('type') === 'text';
+const liveSelection = kind => selectedEl && !selectedEl.removed() && (kind === 'node' ? selectedEl.isNode() : selectedEl.isEdge());
 
-// ─────────────────────────────────────────────────────────────────
-//  UTILITIES
-// ─────────────────────────────────────────────────────────────────
-const uid = () => 'id' + Math.random().toString(36).slice(2, 10);
-const $   = id  => document.getElementById(id);
-
+function canonicalType(id) {
+  const key = String(id || 'person').toLowerCase();
+  return ({ criptoativo:'cryptoasset', cryptoativo:'cryptoasset', crypto:'cryptoasset', cryptocurrency:'cryptoasset', texto:'text', freetext:'text' })[key] || key;
+}
 function getType(id) {
-  return ENTITY_TYPES.find(t => t.id === id) ?? ENTITY_TYPES[0];
+  return ENTITY_TYPES.find(type => type.id === canonicalType(id)) || ENTITY_TYPES[0];
 }
-
-/** Build an SVG data-URI that renders an emoji, used as Cytoscape node background. */
 function emojiSvg(emoji) {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
-    <text x="32" y="50" text-anchor="middle"
-      font-size="38" font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif"
-    >${emoji}</text>
-  </svg>`;
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><text x="32" y="50" text-anchor="middle" ' +
+    'font-size="38" font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif">' + escapeXML(emoji) + '</text></svg>'
+  );
 }
-
-/** Build a text/label SVG — used when user sets a short text as the icon */
 function textSvg(text, isDark) {
-  const fill = isDark ? '#ffffff' : '#111111';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">
-    <text x="32" y="42" text-anchor="middle" dominant-baseline="middle"
-      font-size="${text.length <= 2 ? 32 : 20}"
-      font-weight="700"
-      font-family="Inter,system-ui,sans-serif"
-      fill="${fill}"
-    >${text}</text>
-  </svg>`;
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><text x="32" y="42" text-anchor="middle" ' +
+    'dominant-baseline="middle" font-size="' + (Array.from(text).length <= 2 ? 32 : 20) + '" font-weight="700" ' +
+    'font-family="Inter,system-ui,sans-serif" fill="' + (isDark ? '#ffffff' : '#111111') + '">' + escapeXML(text) + '</text></svg>'
+  );
+}
+function getIconUri(type) { return type.id === 'text' ? '' : type.iconUri || emojiSvg(type.icon); }
+function getCyTokenSafe(varName, fallback) {
+  return getComputedStyle(document.documentElement).getPropertyValue(varName).trim() || fallback;
 }
 
-/** Returns the data-URI to use as a Cytoscape node icon for a given entity type. */
-function getIconUri(type) {
-  return type.iconUri ?? emojiSvg(type.icon);
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  I18N
-// ─────────────────────────────────────────────────────────────────
+// I18N: original controls plus the new controls already present in index.html.
 const I18N = {
   en: {
-    select:       'Select',
-    line:         'Line',
-    arrow:        'Arrow',
-    undo:         'Undo',
-    redo:         'Redo',
-    delete:       'Delete',
-    fit:          'Fit',
-    import:       'Import',
-    save:         'Save',
-    load:         'Load',
-    guides:       'Guides',
-    lineLbl:      'Line',
-    arrowLbl:     'Arrow',
-    removeEntity: 'Remove Entity',
-    removeConn:   'Remove Connection',
-    paletteHeading:   'Entities',
-    canvasHint:       'Click an entity to add it \u00a0·\u00a0 Double-click a node to rename',
-    inspEmptyText:    'Select an entity or connection to view its properties',
-    lblName:          'Name',
-    lblType:          'Type',
-    lblSize:          'Size',
-    lblFontSize:      'Text Size',
-    lblEdgeLabel:     'Label',
-    lblEdgeOptional:  '(optional)',
-    lblConntype:      'Connection type',
-    sbHints:          'S\u00a0\u2014 select \u00a0·\u00a0 L\u00a0\u2014 line \u00a0·\u00a0 A\u00a0\u2014 arrow \u00a0·\u00a0 F\u00a0\u2014 fit \u00a0·\u00a0 Del\u00a0\u2014 delete \u00a0·\u00a0 Ctrl+Z/Y\u00a0\u2014 undo/redo',
-    iiNamePlaceholder: '\u2026',
-    ieLabelPlaceholder: 'e.g. works_at',
-    modeLineSrc:   '\u2014 Line mode \u00b7 click the source node',
-    modeLineTgt:   '\u2014 Line mode \u00b7 now click the target node',
-    modeArrowSrc:  '\u2192 Arrow mode \u00b7 click the source node',
-    modeArrowTgt:  '\u2192 Arrow mode \u00b7 now click the target node',
-    themeLight: 'Light',
-    themeDark:  'Dark',
-    lineConn:  'LINE CONNECTION',
-    arrowConn: 'ARROW CONNECTION',
-    uploadImage: 'Upload Image',
-    resetIcon:   'Reset Icon',
-    selectAll:   'All',
-    cleanBg:     'Clean BG',
-    timeline:    'Timeline',
-    wallColor:   'Wall Color',
-    timelineTitle: '\ud83d\udccb Timeline',
-    autoSaved:   'Auto-saved!',
-    noEntities:  'Add entities first',
-    entity_whatsapp:     'WhatsApp',
-    entity_person:       'Person',
-    entity_organization: 'Organization',
-    entity_phone:        'Phone',
-    entity_email:        'Email',
-    entity_address:      'Address',
-    entity_vehicle:      'Vehicle',
-    entity_event:        'Event',
-    entity_bankaccount:  'Bank Account',
-    entity_device:       'Device',
-    entity_ipaddress:    'IP Address',
-    entity_timestamp:    'Timestamp',
+    select:'Select', line:'Line', arrow:'Arrow', addText:'Text', undo:'Undo', redo:'Redo', delete:'Delete', fit:'Fit',
+    import:'Import', save:'Save', load:'Load', guides:'Guides', lineLbl:'Line', arrowLbl:'Arrow', removeEntity:'Remove Entity',
+    removeConn:'Remove Connection', paletteHeading:'Entities', canvasHint:'Click an entity to add it \u00b7 Double-click a node or connection to edit text',
+    inspEmptyText:'Select an entity or connection to view its properties', lblName:'Name', lblType:'Type', lblSize:'Size', lblFontSize:'Text Size',
+    lblEdgeLabel:'Label', lblEdgeOptional:'(optional)', lblConntype:'Connection type',
+    sbHints:'S \u2014 select \u00b7 L \u2014 line \u00b7 A \u2014 arrow \u00b7 T \u2014 text \u00b7 F \u2014 fit \u00b7 Del \u2014 delete \u00b7 Ctrl+Z/Y \u2014 undo/redo',
+    iiNamePlaceholder:'\u2026', ieLabelPlaceholder:'e.g. works_at',
+    modeLineSrc:'\u2014 Line mode \u00b7 click the source node', modeLineTgt:'\u2014 Line mode \u00b7 now click the target node',
+    modeArrowSrc:'\u2192 Arrow mode \u00b7 click the source node', modeArrowTgt:'\u2192 Arrow mode \u00b7 now click the target node',
+    themeLight:'Light', themeDark:'Dark', lineConn:'LINE CONNECTION', arrowConn:'ARROW CONNECTION', uploadImage:'Upload Image', resetIcon:'Reset Icon',
+    selectAll:'All', cleanBg:'Clean BG', timeline:'Timeline', wallColor:'Wall Color', timelineTitle:'\uD83D\uDCCB Timeline', autoSaved:'Auto-saved!',
+    noEntities:'Add entities first', entity_whatsapp:'WhatsApp', entity_person:'Person', entity_organization:'Organization', entity_phone:'Phone',
+    entity_email:'Email', entity_address:'Address', entity_vehicle:'Vehicle', entity_event:'Event', entity_bankaccount:'Bank Account',
+    entity_cryptoasset:'CryptoAsset', entity_device:'Device', entity_ipaddress:'IP Address', entity_timestamp:'Timestamp', entity_text:'Text',
+    downloadPNG:'Download PNG', downloadPDF:'Download PDF', properties:'Properties', close:'Close', textWidth:'Text width', textColor:'Text color',
+    automaticColor:'Auto', connectionColor:'Line / arrow color', lineWidth:'Line thickness', lineStyle:'Line Style', solid:'Solid', dashed:'Dashed',
+    curve:'Curve', straight:'Straight', curved:'Curved', description:'Description (Sub-title)', startDate:'Start Date', endDate:'End Date',
+    descDistance:'Desc Distance', customIcon:'Custom Icon / Image', textIcon:'Text / Emoji as Icon', applyText:'Apply Text', apply:'Apply',
+    loaded:'Schema loaded successfully!', invalidJSON:'Invalid graph JSON. The current schema was not changed.', readError:'Could not read the file.',
+    exportError:'Export failed. Check that external icons are accessible and try again.', missingPDF:'The PDF library did not load. Reload the page and try again.',
+    missingSheet:'The spreadsheet library did not load.', missingTimeline:'The timeline library did not load.', invalidURL:'Invalid image URL.',
+    invalidImage:'Choose a valid image file.', autosaveError:'Auto-save failed. Use Save to keep a copy.', noDates:'Set Start Date on entities first.',
+    invalidDates:'Check the dates: End Date must not be earlier than Start Date.', newText:'Type your text here',
   },
   pt: {
-    select:       'Selecionar',
-    line:         'Linha',
-    arrow:        'Seta',
-    undo:         'Desfazer',
-    redo:         'Refazer',
-    delete:       'Excluir',
-    fit:          'Ajustar',
-    import:       'Importar',
-    save:         'Salvar',
-    load:         'Abrir',
-    guides:       'Guias',
-    lineLbl:      'Linha',
-    arrowLbl:     'Seta',
-    removeEntity: 'Remover Entidade',
-    removeConn:   'Remover Conex\u00e3o',
-    paletteHeading:   'Entidades',
-    canvasHint:       'Clique em uma entidade para adicion\u00e1-la \u00a0·\u00a0 Duplo clique para renomear',
-    inspEmptyText:    'Selecione uma entidade ou conex\u00e3o para ver suas propriedades',
-    lblName:          'Nome',
-    lblType:          'Tipo',
-    lblSize:          'Tamanho',
-    lblFontSize:      'Tamanho Texto',
-    lblEdgeLabel:     'R\u00f3tulo',
-    lblEdgeOptional:  '(opcional)',
-    lblConntype:      'Tipo de conex\u00e3o',
-    sbHints:          'S\u00a0\u2014 selecionar \u00a0·\u00a0 L\u00a0\u2014 linha \u00a0·\u00a0 A\u00a0\u2014 seta \u00a0·\u00a0 F\u00a0\u2014 ajustar \u00a0·\u00a0 Del\u00a0\u2014 excluir \u00a0·\u00a0 Ctrl+Z/Y\u00a0\u2014 desfazer/refazer',
-    iiNamePlaceholder: '\u2026',
-    ieLabelPlaceholder: 'ex: trabalha_em',
-    modeLineSrc:   '\u2014 Modo linha \u00b7 clique no n\u00f3 de origem',
-    modeLineTgt:   '\u2014 Modo linha \u00b7 agora clique no n\u00f3 de destino',
-    modeArrowSrc:  '\u2192 Modo seta \u00b7 clique no n\u00f3 de origem',
-    modeArrowTgt:  '\u2192 Modo seta \u00b7 agora clique no n\u00f3 de destino',
-    themeLight: 'Claro',
-    themeDark:  'Escuro',
-    lineConn:  'CONEX\u00c3O EM LINHA',
-    arrowConn: 'CONEX\u00c3O EM SETA',
-    uploadImage: 'Carregar Imagem',
-    resetIcon:   'Resetar \u00cdcone',
-    selectAll:   'Tudo',
-    cleanBg:     'Fundo Limpo',
-    timeline:    'Linha do Tempo',
-    wallColor:   'Cor da Parede',
-    timelineTitle: '\ud83d\udccb Linha do Tempo',
-    autoSaved:   'Salvo automaticamente!',
-    noEntities:  'Adicione entidades primeiro',
-    entity_whatsapp:     'WhatsApp',
-    entity_person:       'Pessoa',
-    entity_organization: 'Organiza\u00e7\u00e3o',
-    entity_phone:        'Telefone',
-    entity_email:        'E-mail',
-    entity_address:      'Endere\u00e7o',
-    entity_vehicle:      'Ve\u00edculo',
-    entity_event:        'Evento',
-    entity_bankaccount:  'Conta Banc\u00e1ria',
-    entity_device:       'Dispositivo',
-    entity_ipaddress:    'Endere\u00e7o IP',
-    entity_timestamp:    'Timestamp',
+    select:'Selecionar', line:'Linha', arrow:'Seta', addText:'Texto', undo:'Desfazer', redo:'Refazer', delete:'Excluir', fit:'Ajustar',
+    import:'Importar', save:'Salvar', load:'Abrir', guides:'Guias', lineLbl:'Linha', arrowLbl:'Seta', removeEntity:'Remover Entidade',
+    removeConn:'Remover Conex\u00e3o', paletteHeading:'Entidades', canvasHint:'Clique em uma entidade para adicion\u00e1-la \u00b7 Duplo clique no n\u00f3 ou conex\u00e3o para editar o texto',
+    inspEmptyText:'Selecione uma entidade ou conex\u00e3o para ver suas propriedades', lblName:'Nome', lblType:'Tipo', lblSize:'Tamanho', lblFontSize:'Tamanho do texto',
+    lblEdgeLabel:'R\u00f3tulo', lblEdgeOptional:'(opcional)', lblConntype:'Tipo de conex\u00e3o',
+    sbHints:'S \u2014 selecionar \u00b7 L \u2014 linha \u00b7 A \u2014 seta \u00b7 T \u2014 texto \u00b7 F \u2014 ajustar \u00b7 Del \u2014 excluir \u00b7 Ctrl+Z/Y \u2014 desfazer/refazer',
+    iiNamePlaceholder:'\u2026', ieLabelPlaceholder:'ex: trabalha_em',
+    modeLineSrc:'\u2014 Modo linha \u00b7 clique no n\u00f3 de origem', modeLineTgt:'\u2014 Modo linha \u00b7 agora clique no n\u00f3 de destino',
+    modeArrowSrc:'\u2192 Modo seta \u00b7 clique no n\u00f3 de origem', modeArrowTgt:'\u2192 Modo seta \u00b7 agora clique no n\u00f3 de destino',
+    themeLight:'Claro', themeDark:'Escuro', lineConn:'CONEX\u00c3O EM LINHA', arrowConn:'CONEX\u00c3O EM SETA', uploadImage:'Carregar Imagem', resetIcon:'Resetar \u00cdcone',
+    selectAll:'Tudo', cleanBg:'Fundo Limpo', timeline:'Linha do Tempo', wallColor:'Cor da Parede', timelineTitle:'\uD83D\uDCCB Linha do Tempo', autoSaved:'Salvo automaticamente!',
+    noEntities:'Adicione entidades primeiro', entity_whatsapp:'WhatsApp', entity_person:'Pessoa', entity_organization:'Organiza\u00e7\u00e3o', entity_phone:'Telefone',
+    entity_email:'E-mail', entity_address:'Endere\u00e7o', entity_vehicle:'Ve\u00edculo', entity_event:'Evento', entity_bankaccount:'Conta Banc\u00e1ria',
+    entity_cryptoasset:'CriptoAtivo', entity_device:'Dispositivo', entity_ipaddress:'Endere\u00e7o IP', entity_timestamp:'Timestamp', entity_text:'Texto',
+    downloadPNG:'Baixar PNG', downloadPDF:'Baixar PDF', properties:'Propriedades', close:'Fechar', textWidth:'Largura do texto', textColor:'Cor do texto',
+    automaticColor:'Auto', connectionColor:'Cor da linha / seta', lineWidth:'Espessura da linha', lineStyle:'Estilo da linha', solid:'Cont\u00ednua', dashed:'Tracejada',
+    curve:'Curvatura', straight:'Reta', curved:'Curva', description:'Descri\u00e7\u00e3o (subt\u00edtulo)', startDate:'Data Inicial', endDate:'Data Final',
+    descDistance:'Dist\u00e2ncia da descri\u00e7\u00e3o', customIcon:'\u00cdcone / Imagem personalizada', textIcon:'Texto / Emoji como \u00edcone', applyText:'Aplicar Texto', apply:'Aplicar',
+    loaded:'Esquema carregado com sucesso!', invalidJSON:'JSON de esquema inv\u00e1lido. O esquema atual n\u00e3o foi alterado.', readError:'N\u00e3o foi poss\u00edvel ler o arquivo.',
+    exportError:'Falha na exporta\u00e7\u00e3o. Verifique o acesso aos \u00edcones externos e tente novamente.', missingPDF:'A biblioteca de PDF n\u00e3o carregou. Recarregue a p\u00e1gina e tente novamente.',
+    missingSheet:'A biblioteca de planilhas n\u00e3o carregou.', missingTimeline:'A biblioteca da linha do tempo n\u00e3o carregou.', invalidURL:'URL de imagem inv\u00e1lida.',
+    invalidImage:'Escolha um arquivo de imagem v\u00e1lido.', autosaveError:'Falha no salvamento autom\u00e1tico. Use Salvar para guardar uma c\u00f3pia.', noDates:'Adicione Data Inicial nas entidades primeiro.',
+    invalidDates:'Verifique as datas: a Data Final n\u00e3o pode ser anterior \u00e0 Data Inicial.', newText:'Digite seu texto aqui',
   },
 };
-
-function t(key) {
-  return I18N[currentLang][key] ?? I18N.en[key] ?? key;
-}
-
+function t(key) { return I18N[currentLang][key] ?? I18N.en[key] ?? key; }
 function getEntityLocalName(typeId) {
-  return t(`entity_${typeId}`);
+  const id = canonicalType(typeId);
+  return I18N[currentLang]['entity_' + id] || getType(id).name;
 }
-
 function applyLang() {
-  document.querySelectorAll('[data-i18n]').forEach(el => {
-    const key = el.getAttribute('data-i18n');
-    el.textContent = t(key);
-  });
-  $('palette-heading').textContent   = t('paletteHeading');
-  $('canvas-hint').innerHTML         = t('canvasHint');
-  $('insp-empty-text').textContent   = t('inspEmptyText');
-  $('lbl-name').textContent          = t('lblName');
-  $('lbl-type').textContent          = t('lblType');
-  $('lbl-size').textContent          = t('lblSize');
-  if ($('lbl-font-size')) $('lbl-font-size').textContent = t('lblFontSize');
-  const lblEdge = $('lbl-edge-label');
-  lblEdge.firstChild.textContent     = t('lblEdgeLabel') + ' ';
-  $('lbl-edge-optional').textContent = t('lblEdgeOptional');
-  $('lbl-conntype').textContent      = t('lblConntype');
-  $('sb-hints').textContent          = t('sbHints');
-  $('ii-name').placeholder           = t('iiNamePlaceholder');
-  $('ie-label').placeholder          = t('ieLabelPlaceholder');
-  $('btn-theme-label').textContent   = isLight ? t('themeDark') : t('themeLight');
+  document.documentElement.lang = currentLang === 'pt' ? 'pt-BR' : 'en';
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  const labels = {
+    'palette-heading':'paletteHeading', 'canvas-hint':'canvasHint', 'insp-empty-text':'inspEmptyText',
+    'lbl-name':'lblName', 'lbl-type':'lblType', 'lbl-size':'lblSize', 'lbl-font-size':'lblFontSize',
+    'lbl-edge-optional':'lblEdgeOptional', 'lbl-conntype':'lblConntype', 'sb-hints':'sbHints',
+    'lbl-clean-bg':'cleanBg', 'lbl-wall-color':'wallColor', 'lbl-desc':'description', 'lbl-start-date':'startDate',
+    'lbl-end-date':'endDate', 'lbl-desc-dist':'descDistance', 'lbl-custom-icon':'customIcon', 'lbl-text-icon':'textIcon',
+    'btn-apply-text-icon':'applyText', 'btn-apply-flaticon':'apply',
+  };
+  Object.entries(labels).forEach(([id, key]) => setText(id, t(key)));
+  if ($('lbl-edge-label')?.firstChild) $('lbl-edge-label').firstChild.textContent = t('lblEdgeLabel') + ' ';
+  $('ii-name').placeholder = t('iiNamePlaceholder');
+  $('ie-label').placeholder = t('ieLabelPlaceholder');
+  setText('btn-lang', currentLang === 'en' ? 'PT-BR' : 'EN');
+  setText('btn-theme-label', t(isLight ? 'themeDark' : 'themeLight'));
+  $('inspector')?.setAttribute('aria-label', t('properties'));
   refreshPaletteNames();
   refreshTypeSelect();
-  if (mode !== 'select') updateModePill(connectSrc ? 'target' : 'source');
-  if (selectedEl?.isNode()) showNodeInspector(selectedEl);
-  if (selectedEl?.isEdge()) showEdgeInspector(selectedEl);
+  updateModePill(connectSrc ? 'target' : 'source');
+  refreshInspector(false);
+  updateStatus();
+  scheduleResize();
 }
-
-function toggleLang() {
-  currentLang = currentLang === 'en' ? 'pt' : 'en';
-  $('btn-lang').textContent = currentLang === 'en' ? 'PT-BR' : 'EN';
-  applyLang();
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  THEME
-// ─────────────────────────────────────────────────────────────────
+function toggleLang() { currentLang = currentLang === 'en' ? 'pt' : 'en'; applyLang(); }
 function applyCyTheme() {
   cy.style(buildCyStyle()).update();
-  // Re-render text-based icons so they use the right color
   cy.nodes().forEach(node => {
-    const customText = node.data('customText');
-    if (customText) {
-      node.data('iconSvg', textSvg(customText, !isLight));
-    }
+    if (node.data('customText') && !isTextNode(node)) node.data('iconSvg', textSvg(node.data('customText'), !isCanvasLight()));
   });
+  refreshInspector(false);
+  scheduleDescriptions();
 }
-
 function toggleTheme() {
   isLight = !isLight;
   document.documentElement.classList.toggle('light', isLight);
-  requestAnimationFrame(() => {
-    applyCyTheme();
-    $('btn-theme').firstChild.textContent = isLight ? '🌙 ' : '☀ ';
-    $('btn-theme-label').textContent = isLight ? t('themeDark') : t('themeLight');
-  });
+  if ($('btn-theme')?.firstChild) $('btn-theme').firstChild.textContent = isLight ? '\uD83C\uDF19 ' : '\u2600 ';
+  setText('btn-theme-label', t(isLight ? 'themeDark' : 'themeLight'));
+  applyCyTheme();
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  CYTOSCAPE INITIALISATION
-// ─────────────────────────────────────────────────────────────────
+// CYTOSCAPE INITIALISATION AND STYLES
 function initCy() {
   cy = cytoscape({
-    container: $('cy'),
-    style:     buildCyStyle(),
-    layout:    { name: 'preset' },
-
-    userZoomingEnabled:  true,
-    userPanningEnabled:  true,
-    boxSelectionEnabled: true,
-    selectionType:       'single',
-    minZoom: 0.04,
-    maxZoom: 6,
-    wheelSensitivity: 0.22,
+    container:$('cy'), style:buildCyStyle(), layout:{ name:'preset' },
+    userZoomingEnabled:true, userPanningEnabled:true, boxSelectionEnabled:true,
+    selectionType:'single', minZoom:0.04, maxZoom:6, wheelSensitivity:0.22,
   });
-
-  // Initialize HTML labels for descriptions
-  cy.nodeHtmlLabel([{
-    query: 'node',
-    halign: 'center',
-    valign: 'bottom',
-    halignBox: 'center',
-    valignBox: 'bottom',
-    tpl: function(data) {
-      if (!data.description) return '<div></div>';
-      const dist = data.descDist ?? 42;
-      return `<div class="node-desc-label" style="margin-top: ${dist}px;">${data.description}</div>`;
-    }
-  }]);
-
+  initDescriptions();
   bindCyEvents();
 }
-
 function buildCyStyle() {
-  // ── Color tokens ──────────────────────────────────────
-  const nodeBg      = getCyTokenSafe('--cy-node-bg',      isLight ? '#f0f0f0' : '#161616');
-  const nodeBdr     = getCyTokenSafe('--cy-node-border',  isLight ? '#cccccc' : '#353535');
-  const nodeLbl     = isLight ? '#333333' : '#ffffff';   // 5. white labels in dark mode
-  const nodeSelBg   = getCyTokenSafe('--cy-node-sel-bg',  isLight ? '#e4e4e4' : '#1c1c1c');
-  const nodeSelBdr  = getCyTokenSafe('--cy-node-sel-bdr', isLight ? '#111111' : '#ffffff');
-  const nodeSelLbl  = isLight ? '#111111' : '#ffffff';
-  const edgeColor   = isLight ? '#bbbbbb' : '#ffffff';   // 5. white edges in dark mode
-  const edgeLbl     = isLight ? '#888888' : '#dddddd';   // 5. bright edge labels in dark
-  const edgeTextBg  = isLight ? '#f0f0f0' : '#0c0c0c';
-  const edgeSel     = isLight ? '#111111' : '#ffffff';
-  const nodeHoverBdr = isLight ? '#777777' : '#aaaaaa';
-  const edgeHover    = isLight ? '#888888' : '#ffffff';
-
+  const light = isCanvasLight();
+  const nodeBg = getCyTokenSafe('--cy-node-bg', light ? '#f0f0f0' : '#161616');
+  const nodeBdr = getCyTokenSafe('--cy-node-border', light ? '#cccccc' : '#353535');
+  const nodeLbl = light ? '#333333' : '#ffffff';
+  const nodeSelBg = getCyTokenSafe('--cy-node-sel-bg', light ? '#e4e4e4' : '#1c1c1c');
+  const nodeSelBdr = getCyTokenSafe('--cy-node-sel-bdr', light ? '#111111' : '#ffffff');
+  const edgeColor = light ? '#bbbbbb' : '#ffffff';
+  const edgeLbl = light ? '#888888' : '#dddddd';
+  const edgeTextBg = cleanBgEnabled ? '#ffffff' : light ? '#f0f0f0' : '#0c0c0c';
   return [
-    /* ── Nodes (default) ── */
-    {
-      selector: 'node',
-      style: {
-        'background-color':      nodeBg,
-        'background-image':      'data(iconSvg)',
-        'background-width':      '92%',
-        'background-height':     '92%',
-        'background-position-x': '50%',
-        'background-position-y': '50%',
-        'background-clip':       'none',
-        'border-color':          nodeBdr,
-        'border-width':          1.5,
-        'label':                 'data(name)',
-        'color':                 nodeLbl,
-        'font-size':             'data(fontSize)',
-        'font-family':           '"Inter", system-ui, sans-serif',
-        'font-weight':           400,
-        'text-valign':           'bottom',
-        'text-halign':           'center',
-        'text-margin-y':         8,
-        'text-wrap':             'wrap',
-        'text-max-width':        92,
-        'width':  'data(size)',
-        'height': 'data(size)',
-        'shape':                 'round-rectangle',
-        'transition-property':   'border-color, border-width, background-color, color',
-        'transition-duration':   '110ms',
-        'z-index':                 9999,
-        'text-background-opacity': 0,
-        'text-outline-width':      2.5,
-        'text-outline-color':      nodeBg,
-      }
-    },
-    /* ── Node hover ── */
-    {
-      selector: 'node:hover',
-      style: {
-        'border-color': nodeHoverBdr,
-        'border-width': 2,
-        'color':        isLight ? '#333333' : '#ffffff',
-      }
-    },
-    /* ── Node selected ── */
-    {
-      selector: 'node:selected',
-      style: {
-        'background-color': nodeSelBg,
-        'border-color':     nodeSelBdr,
-        'border-width':     2,
-        'color':            nodeSelLbl,
-      }
-    },
-    /* ── Connect-source highlight (dashed) ── */
-    {
-      selector: 'node.connect-src',
-      style: {
-        'border-color': nodeSelBdr,
-        'border-width': 2.5,
-        'border-style': 'dashed',
-        'color':        nodeSelLbl,
-      }
-    },
-
-    /* ── Edges (default) ── */
-    {
-      selector: 'edge',
-      style: {
-        'width':                   1.5,
-        'line-color':              edgeColor,
-        'curve-style':             'bezier',
-        'label':                   'data(label)',
-        'color':                   edgeLbl,
-        'font-size':               10,
-        'font-family':             '"Inter", system-ui, sans-serif',
-        'text-background-color':   edgeTextBg,
-        'text-background-opacity': 1,
-        'text-background-padding': '3px',
-        'target-arrow-shape':      'none',
-        'source-arrow-shape':      'none',
-        'transition-property':     'line-color, width',
-        'transition-duration':     '110ms',
-        'z-index':                 1,
-      }
-    },
-    /* ── Edge hover ── */
-    {
-      selector: 'edge:hover',
-      style: {
-        'line-color': edgeHover,
-        'color':      isLight ? '#555555' : '#ffffff',
-        'width':      2,
-      }
-    },
-    /* ── Edge selected ── */
-    {
-      selector: 'edge:selected',
-      style: {
-        'line-color':          edgeSel,
-        'color':               isLight ? '#333333' : '#ffffff',
-        'width':               2,
-        'target-arrow-color':  edgeSel,
-      }
-    },
-    /* ── Dashed edges ── */
-    {
-      selector: 'edge[lineStyle="dashed"]',
-      style: {
-        'line-style': 'dashed',
-        'line-dash-pattern': [6, 4]
-      }
-    },
-    /* ── Curved edges ── */
-    {
-      selector: 'edge[curve="curved"]',
-      style: {
-        'curve-style': 'unbundled-bezier',
-        'control-point-distances': [60],
-        'control-point-weights': [0.5]
-      }
-    },
-    /* ── Arrow edge variant ── */
-    {
-      selector: 'edge[edgeType="arrow"]',
-      style: {
-        'target-arrow-shape': 'triangle',
-        'target-arrow-color': edgeColor,
-      }
-    },
-    {
-      selector: 'edge[edgeType="arrow"]:hover',
-      style: { 'target-arrow-color': edgeHover }
-    },
-    {
-      selector: 'edge[edgeType="arrow"]:selected',
-      style: { 'target-arrow-color': edgeSel }
-    },
-    /* ── Node with custom wall color ── */
-    {
-      selector: 'node[wallColor]',
-      style: {
-        'border-color': 'data(wallColor)',
-      }
-    },
-    {
-      selector: 'node[wallColor]:selected',
-      style: {
-        'border-color': 'data(wallColor)',
-        'border-width': 2,
-      }
-    },
+    { selector:'node', style:{
+      'background-color':nodeBg, 'background-image':node => node.data('iconSvg') || 'none',
+      'background-width':'92%', 'background-height':'92%', 'background-position-x':'50%', 'background-position-y':'50%',
+      'background-clip':'none', 'border-color':nodeBdr, 'border-width':1.5, 'label':'data(name)', 'color':nodeLbl,
+      'font-size':node => clamp(node.data('fontSize'), 8, 48, 11), 'font-family':'"Inter", system-ui, sans-serif',
+      'font-weight':400, 'text-valign':'bottom', 'text-halign':'center', 'text-margin-y':8, 'text-wrap':'wrap', 'text-max-width':92,
+      'width':node => clamp(node.data('size'), 40, 180, 68), 'height':node => clamp(node.data('size'), 40, 180, 68),
+      'shape':'round-rectangle', 'transition-property':'border-color, border-width, background-color', 'transition-duration':'110ms',
+      'z-index':9999, 'text-background-opacity':0, 'text-outline-width':2.5, 'text-outline-color':nodeBg, 'text-events':'yes',
+    } },
+    { selector:'node.hovered', style:{ 'border-color':light ? '#777777' : '#aaaaaa', 'border-width':2 } },
+    { selector:'node:selected', style:{ 'background-color':nodeSelBg, 'border-color':nodeSelBdr, 'border-width':2, 'color':light ? '#111111' : '#ffffff' } },
+    { selector:'node.connect-src', style:{ 'border-color':nodeSelBdr, 'border-width':2.5, 'border-style':'dashed' } },
+    { selector:'node[wallColor]', style:{ 'border-color':node => hexColor(node.data('wallColor'), nodeBdr) } },
+    { selector:'node[wallColor]:selected', style:{ 'border-color':node => hexColor(node.data('wallColor'), nodeSelBdr), 'border-width':2 } },
+    // Text is a real graph element, not HTML: it moves, saves, connects and exports.
+    { selector:'node[type="text"]', style:{
+      'background-image':'none', 'background-opacity':0, 'border-width':0, 'shape':'rectangle',
+      'width':node => clamp(node.data('textWidth'), 80, 1000, 280), 'height':node => Math.max(24, Number(node.data('textHeight')) || 30),
+      'label':'data(name)', 'text-valign':'center', 'text-margin-y':0, 'text-outline-width':0, 'text-background-opacity':0,
+      'text-max-width':node => clamp(node.data('textWidth'), 80, 1000, 280), 'text-wrap':'wrap', 'text-overflow-wrap':'anywhere',
+      'line-height':1.2, 'color':node => hexColor(node.data('textColor'), nodeLbl), 'transition-duration':0,
+    } },
+    { selector:'node[type="text"]:selected, node[type="text"].connect-src', style:{
+      'background-opacity':0, 'border-width':0, 'overlay-color':'#4a9eff', 'overlay-opacity':0.09, 'overlay-padding':5,
+    } },
+    { selector:'edge', style:{
+      'width':edge => clamp(edge.data('width'), 1, 12, 1.5),
+      'line-color':edge => hexColor(edge.data('color'), edgeColor),
+      'target-arrow-color':edge => hexColor(edge.data('color'), edgeColor),
+      'source-arrow-color':edge => hexColor(edge.data('color'), edgeColor),
+      'curve-style':'bezier', 'label':'data(label)', 'color':edge => hexColor(edge.data('textColor'), edgeLbl),
+      'font-size':edge => clamp(edge.data('fontSize'), 8, 72, 10), 'font-family':'"Inter", system-ui, sans-serif',
+      'text-wrap':'wrap', 'text-max-width':300, 'text-background-color':edgeTextBg, 'text-background-opacity':1,
+      'text-background-padding':'3px', 'target-arrow-shape':'none', 'source-arrow-shape':'none',
+      'z-index':1, 'events':'yes', 'text-events':'yes', 'overlay-opacity':0,
+    } },
+    // Selection overlays do not overwrite the user's colour or line width.
+    { selector:'edge.hovered', style:{ 'overlay-color':'#4a9eff', 'overlay-opacity':0.08, 'overlay-padding':4 } },
+    { selector:'edge:selected', style:{ 'overlay-color':'#4a9eff', 'overlay-opacity':0.16, 'overlay-padding':5 } },
+    { selector:'edge[lineStyle="dashed"]', style:{ 'line-style':'dashed', 'line-dash-pattern':[6,4] } },
+    { selector:'edge[curve="straight"]', style:{ 'curve-style':'straight' } },
+    { selector:'edge[curve="curved"]', style:{ 'curve-style':'unbundled-bezier', 'control-point-distances':[60], 'control-point-weights':[0.5] } },
+    { selector:'edge[edgeType="arrow"]', style:{ 'target-arrow-shape':'triangle' } },
+    { selector:'edge:loop', style:{ 'curve-style':'bezier' } },
   ];
 }
 
-function getCyTokenSafe(varName, fallback) {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
-  return v || fallback;
+// Passive descriptions. Never put a hit-testing HTML layer inside #cy.
+// This preserves subtitles even when the optional HTML-label CDN is unavailable.
+function initDescriptions() {
+  let layer = $('description-layer');
+  if (!layer) { layer = document.createElement('div'); layer.id = 'description-layer'; $('canvas-wrap').appendChild(layer); }
+  layer.setAttribute('aria-hidden', 'true');
+  layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:5;';
+  cy.on('render pan zoom resize add remove data position', scheduleDescriptions);
+}
+function scheduleDescriptions() {
+  if (descriptionFrame) return;
+  descriptionFrame = requestAnimationFrame(() => { descriptionFrame = 0; renderDescriptions(); });
+}
+function renderDescriptions() {
+  if (!cy || cy.destroyed()) return;
+  const active = new Set();
+  const layer = $('description-layer');
+  const zoom = cy.zoom();
+  cy.nodes().forEach(node => {
+    const description = node.data('description');
+    if (!description) return;
+    active.add(node.id());
+    let label = descriptionElements.get(node.id());
+    if (!label) {
+      label = document.createElement('div'); label.className = 'node-desc-label';
+      label.style.cssText = 'position:absolute;margin-top:0;pointer-events:none;width:130px;transform-origin:top center;';
+      layer.appendChild(label); descriptionElements.set(node.id(), label);
+    }
+    const p = node.renderedPosition();
+    label.textContent = description;
+    label.style.left = p.x + 'px';
+    label.style.top = p.y + node.renderedOuterHeight() / 2 + clamp(node.data('descDist'), 0, 150, 42) * zoom + 'px';
+    label.style.transform = 'translateX(-50%) scale(' + zoom + ')';
+    label.style.display = node.visible() ? '' : 'none';
+  });
+  for (const [id, label] of descriptionElements) {
+    if (!active.has(id)) { label.remove(); descriptionElements.delete(id); }
+  }
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  CYTOSCAPE EVENT BINDINGS
-// ─────────────────────────────────────────────────────────────────
+// GRAPH EVENTS AND SELECTION
 function bindCyEvents() {
-  cy.on('tap', 'node', e => {
-    if (mode !== 'select') { handleConnectTap(e.target); return; }
-    
-    // Handle Ctrl/Cmd+Click for multiple selection
-    if (e.originalEvent.ctrlKey || e.originalEvent.metaKey) {
-      if (e.target.selected()) {
-        e.target.unselect();
-      } else {
-        e.target.select();
-      }
-      selectedEl = cy.nodes(':selected').last();
-      if (!selectedEl.length) selectedEl = null;
-    } else {
-      cy.elements().unselect();
-      e.target.select();
-      selectedEl = e.target;
-    }
-
-    if (selectedEl) showNodeInspector(selectedEl);
-    else showEmpty();
-    
-    updateToolbar();
+  let beforeTap = [];
+  let previousTapId = null, previousTapTime = 0, doubleTapId = null;
+  cy.on('tap', 'node, edge', event => {
+    const now = performance.now();
+    doubleTapId = previousTapId === event.target.id() && now - previousTapTime < 400 ? event.target.id() : null;
+    previousTapId = event.target.id(); previousTapTime = now;
   });
-
-  cy.on('tap', 'edge', e => {
-    if (mode !== 'select') return;
-    selectElement(e.target);
-    showEdgeInspector(e.target);
-  });
-
-  cy.on('tap', e => {
-    if (e.target !== cy) return;
-    if (connectSrc) {
-      connectSrc.removeClass('connect-src');
-      connectSrc = null;
-      updateModePill('source');
+  cy.on('tapstart', () => { beforeTap = cy.elements(':selected').map(el => el.id()); });
+  cy.on('tap', 'node', event => {
+    if (mode !== 'select') {
+      handleConnectTap(event.target);
+      queueMicrotask(() => { if (mode !== 'select') clearSelection(); });
       return;
     }
-    if (mode === 'select') clearSelection();
+    const target = event.target;
+    const native = event.originalEvent;
+    const additive = !!(native?.ctrlKey || native?.metaKey || native?.shiftKey);
+    const previous = [...beforeTap];
+    // Apply after Cytoscape's built-in tap selection to avoid double toggles.
+    queueMicrotask(() => {
+      if (target.removed()) return;
+      if (!additive) { selectElement(target); return; }
+      const ids = new Set(previous);
+      if (ids.has(target.id())) ids.delete(target.id()); else ids.add(target.id());
+      cy.elements().unselect();
+      ids.forEach(id => cy.getElementById(id).select());
+      selectedEl = cy.elements(':selected').last();
+      if (!selectedEl.length) selectedEl = null;
+      refreshInspector(true);
+      updateToolbar();
+    });
   });
-
-  cy.on('dblclick', 'node', e => {
-    if (mode !== 'select') return;
-    selectElement(e.target);
-    showNodeInspector(e.target);
-    setTimeout(focusNameInput, 60);
+  cy.on('tap', 'edge', event => {
+    // An existing connection is editable even if drawing mode was left active.
+    const edge = event.target;
+    setMode('select');
+    queueMicrotask(() => { if (!edge.removed()) selectElement(edge); });
   });
-
-  cy.on('dblclick', 'edge', e => {
-    if (mode !== 'select') return;
-    selectElement(e.target);
-    showEdgeInspector(e.target);
-    setTimeout(() => { const i = $('ie-label'); i.focus(); i.select(); }, 60);
+  cy.on('tap', event => {
+    if (event.target !== cy) return;
+    if (connectSrc) {
+      connectSrc.removeClass('connect-src'); connectSrc = null; updateModePill('source');
+    } else if (mode === 'select') clearSelection();
   });
-
-  cy.on('dragfree', 'node', () => {
-    clearGuides();
-    pushHistory();
+  cy.on('dbltap', 'node, edge', event => {
+    // Two fast clicks on different nodes or Ctrl-clicks are not rename gestures.
+    if (event.originalEvent?.ctrlKey || event.originalEvent?.metaKey || event.originalEvent?.shiftKey || doubleTapId !== event.target.id()) return;
+    if (event.target.isNode() && mode !== 'select') return;
+    const target = event.target;
+    setMode('select');
+    queueMicrotask(() => {
+      if (target.removed()) return;
+      selectElement(target);
+      requestAnimationFrame(() => {
+        const input = $(target.isNode() ? 'ii-name' : 'ie-label');
+        input?.focus(); input?.select();
+      });
+    });
   });
-
-  // ── Alignment guides on drag ──────────────────────────
-  cy.on('drag', 'node', e => {
+  cy.on('select unselect', () => {
+    if (selectionFrame) return;
+    selectionFrame = requestAnimationFrame(() => {
+      selectionFrame = 0;
+      if (exportBackup) return;
+      if (selectedEl?.removed() || !selectedEl?.selected()) {
+        selectedEl = cy.elements(':selected').last();
+        if (!selectedEl.length) selectedEl = null;
+      }
+      refreshInspector(false);
+      updateToolbar();
+    });
+  });
+  cy.on('mouseover', 'node, edge', event => event.target.addClass('hovered'));
+  cy.on('mouseout', 'node, edge', event => event.target.removeClass('hovered'));
+  cy.on('dragfree', 'node', () => { clearGuides(); pushHistory(); });
+  cy.on('drag', 'node', event => {
     if (!guidesEnabled) return;
-    const dragged = e.target;
+    const dragged = event.target;
     const pos = dragged.position();
-    const zoom = cy.zoom();
-    const snapThreshold = 10 / zoom; // 10 pixels on screen
-
-    const others = cy.nodes().filter(n => n.id() !== dragged.id());
+    const threshold = 10 / cy.zoom();
+    const others = cy.nodes().filter(n => n.id() !== dragged.id() && !n.selected());
     const guides = [];
-    let snappedY = false;
-    let snappedX = false;
-
+    let snappedX = false, snappedY = false;
     others.forEach(other => {
       const op = other.position();
-      // Horizontal guide (same Y)
-      if (!snappedY && Math.abs(pos.y - op.y) < snapThreshold) {
-        dragged.position('y', op.y);
-        guides.push({ type: 'h', model: op.y });
-        snappedY = true;
+      if (!snappedY && Math.abs(pos.y - op.y) < threshold) {
+        dragged.position('y', op.y); guides.push({ type:'h', model:op.y }); snappedY = true;
       }
-      // Vertical guide (same X)
-      if (!snappedX && Math.abs(pos.x - op.x) < snapThreshold) {
-        dragged.position('x', op.x);
-        guides.push({ type: 'v', model: op.x });
-        snappedX = true;
+      if (!snappedX && Math.abs(pos.x - op.x) < threshold) {
+        dragged.position('x', op.x); guides.push({ type:'v', model:op.x }); snappedX = true;
       }
     });
-
     renderGuides(guides);
   });
+  cy.on('pan zoom', clearGuides);
+}
+/** Central selection helper, missing in the original connection click handler. */
+function selectElement(element) {
+  if (!element?.length || element.removed()) return;
+  if (mode !== 'select') setMode('select');
+  cy.elements().not(element).unselect();
+  element.select();
+  selectedEl = element;
+  refreshInspector(true);
+  updateToolbar();
+}
+function clearSelection() {
+  cy.elements().unselect(); selectedEl = null; showEmpty(); updateToolbar();
+}
+function refreshInspector(open = false) {
+  if (liveSelection('node')) showNodeInspector(selectedEl, open);
+  else if (liveSelection('edge')) showEdgeInspector(selectedEl, open);
+  else showEmpty();
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  ALIGNMENT GUIDES (DOM overlay)
-// ─────────────────────────────────────────────────────────────────
-function modelToScreenCoords(modelX, modelY) {
-  const pan  = cy.pan();
-  const zoom = cy.zoom();
-  return {
-    x: modelX * zoom + pan.x,
-    y: modelY * zoom + pan.y,
-  };
-}
-
+// ALIGNMENT GUIDES
+function modelToScreenCoords(x, y) { const pan = cy.pan(), z = cy.zoom(); return { x:x * z + pan.x, y:y * z + pan.y }; }
 function renderGuides(guides) {
   const container = $('align-guides');
-  container.innerHTML = '';
-  if (!guidesEnabled || !guides.length) return;
-
-  guides.forEach(g => {
-    const line = document.createElement('div');
-    line.className = 'guide-line ' + g.type;
-    if (g.type === 'h') {
-      const sc = modelToScreenCoords(0, g.model);
-      line.style.top = sc.y + 'px';
-    } else {
-      const sc = modelToScreenCoords(g.model, 0);
-      line.style.left = sc.x + 'px';
-    }
+  container.replaceChildren();
+  if (!guidesEnabled) return;
+  guides.forEach(guide => {
+    const line = document.createElement('div'); line.className = 'guide-line ' + guide.type;
+    if (guide.type === 'h') line.style.top = modelToScreenCoords(0, guide.model).y + 'px';
+    else line.style.left = modelToScreenCoords(guide.model, 0).x + 'px';
     container.appendChild(line);
   });
 }
+function clearGuides() { $('align-guides')?.replaceChildren(); }
 
-function clearGuides() {
-  $('align-guides').innerHTML = '';
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  CONNECT MODE LOGIC
-// ─────────────────────────────────────────────────────────────────
+// CONNECTIONS AND MODE MANAGEMENT
 function handleConnectTap(node) {
-  if (!connectSrc) {
-    connectSrc = node;
-    node.addClass('connect-src');
-    updateModePill('target');
+  if (!connectSrc || connectSrc.removed()) {
+    connectSrc = node; node.addClass('connect-src'); updateModePill('target');
   } else {
-    if (connectSrc.id() !== node.id()) {
-      createEdge(connectSrc, node, mode);
-      pushHistory();
-    }
-    connectSrc.removeClass('connect-src');
-    connectSrc = null;
-    updateModePill('source');
+    if (connectSrc.id() !== node.id()) { createEdge(connectSrc, node, mode); pushHistory(); }
+    connectSrc.removeClass('connect-src'); connectSrc = null; updateModePill('source');
   }
 }
-
 function createEdge(src, tgt, type) {
-  cy.add({
-    group: 'edges',
-    data: {
-      id:       uid(),
-      source:   src.id(),
-      target:   tgt.id(),
-      edgeType: type === 'arrow' ? 'arrow' : 'line',
-      label:    '',
-    }
-  });
+  const edge = cy.add({ group:'edges', data:{
+    id:uid(), source:src.id(), target:tgt.id(), edgeType:type === 'arrow' ? 'arrow' : 'line', label:'',
+    color:null, textColor:null, fontSize:10, width:1.5, lineStyle:'solid', curve:'straight',
+  } });
   updateStatus();
+  return edge;
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  ADD ENTITY (from palette click)
-// ─────────────────────────────────────────────────────────────────
-function addEntityFromPalette(typeId) {
-  setMode('select');
-
-  const type = getType(typeId);
-  const ext  = cy.extent();
-  const cx   = (ext.x1 + ext.x2) / 2;
-  const cy_  = (ext.y1 + ext.y2) / 2;
-
-  const existing  = cy.nodes(`[type="${typeId}"]`).length;
-  const localName = getEntityLocalName(typeId);
-  const defName   = existing === 0 ? localName : `${localName} ${existing + 1}`;
-
-  const node = addNodeToGraph(typeId, defName, {
-    x: cx + (Math.random() - 0.5) * 110,
-    y: cy_ + (Math.random() - 0.5) * 110,
-  });
-
-  pushHistory();
-
-  cy.elements().unselect();
-  node.select();
-  selectedEl = node;
-  showNodeInspector(node);
-  updateToolbar();
-
-  cy.animate({ center: { eles: node }, duration: 160 });
-  setTimeout(focusNameInput, 220);
-}
-
-function addNodeToGraph(typeId, name, position) {
-  const type = getType(typeId);
-  const id   = uid();
-  cy.add({
-    group: 'nodes',
-    data: {
-      id,
-      name,
-      type:      typeId,
-      iconSvg:   getIconUri(type),
-      customImg: null,   // base64 or URL set by user
-      customText: null,  // text/emoji set by user
-      description: '',
-      startDate: '',
-      endDate: '',
-      size:      68,
-      fontSize:  11,
-      descDist:  42,
-    },
-    position,
-  });
-  updateStatus();
-  return cy.getElementById(id);
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  SELECTION HELPERS
-// ─────────────────────────────────────────────────────────────────
-function clearSelection() {
-  cy.elements().unselect();
-  selectedEl = null;
-  showEmpty();
-  updateToolbar();
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  MODE MANAGEMENT
-// ─────────────────────────────────────────────────────────────────
 function setMode(newMode) {
-  if (connectSrc) {
-    connectSrc.removeClass('connect-src');
-    connectSrc = null;
-  }
-
+  if (!['select','line','arrow'].includes(newMode)) return;
+  if (connectSrc) { connectSrc.removeClass('connect-src'); connectSrc = null; }
   mode = newMode;
-
-  $('btn-select').classList.toggle('active', mode === 'select');
-  $('btn-line').classList.toggle('active',   mode === 'line');
-  $('btn-arrow').classList.toggle('active',  mode === 'arrow');
-
-  const cyEl = $('cy');
-  cyEl.style.cursor = mode !== 'select' ? 'crosshair' : '';
-
+  ['select','line','arrow'].forEach(id => $('btn-' + id)?.classList.toggle('active', mode === id));
+  $('cy').style.cursor = mode === 'select' ? '' : 'crosshair';
   cy.autoungrabify(mode !== 'select');
   updateModePill('source');
-
-  if (mode !== 'select') {
-    cy.elements().unselect();
-    showEmpty();
-    selectedEl = null;
-    updateToolbar();
-  }
+  if (mode !== 'select') { clearSelection(); setInspectorOpen(false); }
 }
-
 function updateModePill(step) {
   const pill = $('mode-pill');
-  if (mode === 'select') { pill.classList.remove('visible'); return; }
-  if (mode === 'line') {
-    pill.textContent = step === 'target' ? t('modeLineTgt') : t('modeLineSrc');
-  } else {
-    pill.textContent = step === 'target' ? t('modeArrowTgt') : t('modeArrowSrc');
-  }
-  pill.classList.add('visible');
+  if (!pill) return;
+  pill.classList.toggle('visible', mode !== 'select');
+  if (mode !== 'select') pill.textContent = t(mode === 'line' ? (step === 'target' ? 'modeLineTgt' : 'modeLineSrc') : (step === 'target' ? 'modeArrowTgt' : 'modeArrowSrc'));
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  INSPECTOR PANELS
-// ─────────────────────────────────────────────────────────────────
-function showEmpty() {
-  $('insp-empty').style.display = '';
-  $('insp-node').classList.remove('visible');
-  $('insp-edge').classList.remove('visible');
-}
-
-function showNodeInspector(node) {
-  const type = getType(node.data('type'));
-  $('insp-empty').style.display = 'none';
-  $('insp-node').classList.add('visible');
-  $('insp-edge').classList.remove('visible');
-  $('ii-size').value = node.data('size') || 68;
-  if ($('ii-font-size')) $('ii-font-size').value = node.data('fontSize') || 11;
-  if ($('ii-desc-dist')) $('ii-desc-dist').value = node.data('descDist') ?? 42;
-
-  // Update icon display in inspector head
-  const iconEl = $('ii-icon');
-  const customImg = node.data('customImg');
-  if (customImg) {
-    iconEl.innerHTML = `<img src="${customImg}" alt="icon">`;
-  } else {
-    iconEl.innerHTML = '';
-    iconEl.textContent = type.icon;
-  }
-
-  $('ii-kind').textContent  = getEntityLocalName(type.id).toUpperCase();
-  $('ii-title').textContent = node.data('name') || '—';
-  $('ii-name').value        = node.data('name') || '';
-  $('ii-type').value        = node.data('type') || 'person';
-
-  // Populate custom icon fields
-  $('ii-text-icon').value    = node.data('customText') || '';
-  $('ii-flaticon-url').value = node.data('customImg')?.startsWith('http') ? node.data('customImg') : '';
-
-  // Dates and description
-  if ($('ii-desc')) $('ii-desc').value = node.data('description') || '';
-  if ($('ii-start-date')) $('ii-start-date').value = node.data('startDate') || '';
-  if ($('ii-end-date')) $('ii-end-date').value = node.data('endDate') || '';
-
-  // Show preview if custom image
-  const preview = $('upload-preview');
-  if (customImg) {
-    preview.src = customImg;
-    preview.classList.add('visible');
-  } else {
-    preview.src = '';
-    preview.classList.remove('visible');
-  }
-
-  // Sync wall color buttons
-  const nodeWallColor = node.data('wallColor') || '#000000';
-  document.querySelectorAll('.wall-color-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.wallColor === nodeWallColor);
+// ENTITIES AND FREE TEXT
+function addEntityFromPalette(typeId) {
+  setMode('select');
+  typeId = canonicalType(typeId);
+  const ext = cy.extent();
+  const existing = cy.nodes().filter(n => n.data('type') === typeId).length;
+  const localName = getEntityLocalName(typeId);
+  const name = typeId === 'text' ? t('newText') : existing ? localName + ' ' + (existing + 1) : localName;
+  const node = addNodeToGraph(typeId, name, {
+    x:(ext.x1 + ext.x2) / 2 + (Math.random() - 0.5) * 110,
+    y:(ext.y1 + ext.y2) / 2 + (Math.random() - 0.5) * 110,
   });
+  pushHistory(); selectElement(node);
+  cy.animate({ center:{ eles:node }, duration:160 });
+  setTimeout(() => { if (selectedEl?.id() === node.id()) focusNameInput(); }, 220);
+  return node;
+}
+function addText() { return addEntityFromPalette('text'); }
+function addNodeToGraph(typeId, name, position) {
+  typeId = canonicalType(typeId);
+  const type = getType(typeId);
+  const node = cy.add({ group:'nodes', data:{
+    id:uid(), name:String(name ?? ''), type:typeId, iconSvg:getIconUri(type), customImg:null, customText:null,
+    description:'', startDate:'', endDate:'', size:68, fontSize:typeId === 'text' ? 18 : 11, descDist:42,
+    textWidth:280, textHeight:30, textColor:null,
+  }, position });
+  syncTextDimensions(node); updateStatus(); return node;
+}
+let measureContext = null;
+function syncTextDimensions(node) {
+  if (!isTextNode(node)) return;
+  const width = clamp(node.data('textWidth'), 80, 1000, 280);
+  const font = clamp(node.data('fontSize'), 8, 48, 18);
+  if (!measureContext) measureContext = document.createElement('canvas').getContext('2d');
+  measureContext.font = font + 'px Inter, system-ui, sans-serif';
+  let lines = 0;
+  String(node.data('name') || ' ').split('\n').forEach(paragraph => {
+    let current = '';
+    lines++;
+    for (const char of Array.from(paragraph)) {
+      if (current && measureContext.measureText(current + char).width > width) { lines++; current = char; }
+      else current += char;
+    }
+  });
+  const height = Math.max(24, Math.ceil(lines * font * 1.2 + 8));
+  if (node.data('textHeight') !== height) node.data('textHeight', height);
 }
 
-function showEdgeInspector(edge) {
+// INSPECTOR
+function setInspectorOpen(open) {
+  $('workspace')?.classList.toggle('inspector-open', !!open);
+  $('btn-inspector')?.setAttribute('aria-expanded', String(!!open));
+}
+function showEmpty() {
+  if ($('insp-empty')) $('insp-empty').style.display = '';
+  $('insp-node')?.classList.remove('visible'); $('insp-edge')?.classList.remove('visible');
+}
+function setRangeValue(id, value) {
+  setValue(id, value); setText(id + '-value', value + 'px');
+}
+function showNodeInspector(node, open = true) {
+  const type = getType(node.data('type'));
+  const text = isTextNode(node);
+  $('insp-empty').style.display = 'none'; $('insp-node').classList.add('visible'); $('insp-edge').classList.remove('visible');
+  setRangeValue('ii-size', clamp(node.data('size'), 40, 180, 68));
+  setRangeValue('ii-font-size', clamp(node.data('fontSize'), 8, 48, text ? 18 : 11));
+  setRangeValue('ii-text-width', clamp(node.data('textWidth'), 80, 1000, 280));
+  setValue('ii-desc-dist', clamp(node.data('descDist'), 0, 150, 42));
+  setValue('ii-text-color', hexColor(node.data('textColor'), isCanvasLight() ? '#333333' : '#ffffff'));
+  const iconEl = $('ii-icon'); iconEl.replaceChildren();
+  const customImg = node.data('customImg');
+  if (customImg && !text) {
+    const img = document.createElement('img'); img.src = customImg; img.alt = 'icon'; iconEl.appendChild(img);
+  } else iconEl.textContent = text ? 'T' : node.data('customText') || type.icon;
+  setText('ii-kind', getEntityLocalName(type.id).toUpperCase());
+  setText('ii-title', node.data('name') || '\u2014');
+  setValue('ii-name', node.data('name') || '');
+  $('ii-name').rows = text ? 4 : 1;
+  setValue('ii-type', node.data('type') || 'person');
+  setValue('ii-text-icon', node.data('customText') || '');
+  setValue('ii-flaticon-url', typeof customImg === 'string' && /^https?:/i.test(customImg) ? customImg : '');
+  setValue('ii-desc', node.data('description') || '');
+  setValue('ii-start-date', node.data('startDate') || ''); setValue('ii-end-date', node.data('endDate') || '');
+  if ($('ii-end-date')) $('ii-end-date').min = node.data('startDate') || '';
+  const preview = $('upload-preview');
+  if (customImg && !text) preview.src = customImg; else preview.removeAttribute('src');
+  preview.classList.toggle('visible', !!customImg && !text);
+  ['text-width-group','text-color-group'].forEach(id => { if ($(id)) $(id).hidden = !text; });
+  ['node-size-group','custom-icon-group','wall-color-group'].forEach(id => { if ($(id)) $(id).hidden = text; });
+  document.querySelectorAll('.wall-color-btn').forEach(button => button.classList.toggle('active', button.dataset.wallColor === (node.data('wallColor') || '#000000')));
+  if (open) setInspectorOpen(true);
+}
+function showEdgeInspector(edge, open = true) {
   const isArrow = edge.data('edgeType') === 'arrow';
-  $('insp-empty').style.display = 'none';
-  $('insp-node').classList.remove('visible');
-  $('insp-edge').classList.add('visible');
-
-  $('ie-glyph').textContent = isArrow ? '→' : '—';
-  $('ie-kind').textContent  = isArrow ? t('arrowConn') : t('lineConn');
-  $('ie-label').value       = edge.data('label') || '';
-  $('ie-line-btn').classList.toggle('active', !isArrow);
-  $('ie-arrow-btn').classList.toggle('active', isArrow);
-
-  const isDashed = edge.data('lineStyle') === 'dashed';
-  $('ie-solid-btn').classList.toggle('active', !isDashed);
-  $('ie-dashed-btn').classList.toggle('active', isDashed);
-
-  const isCurved = edge.data('curve') === 'curved';
-  $('ie-straight-btn').classList.toggle('active', !isCurved);
-  $('ie-curved-btn').classList.toggle('active', isCurved);
+  $('insp-empty').style.display = 'none'; $('insp-node').classList.remove('visible'); $('insp-edge').classList.add('visible');
+  setText('ie-glyph', isArrow ? '\u2192' : '\u2014'); setText('ie-kind', t(isArrow ? 'arrowConn' : 'lineConn'));
+  setValue('ie-label', edge.data('label') || '');
+  setValue('ie-color', hexColor(edge.data('color'), isCanvasLight() ? '#bbbbbb' : '#ffffff'));
+  setValue('ie-text-color', hexColor(edge.data('textColor'), isCanvasLight() ? '#888888' : '#dddddd'));
+  setRangeValue('ie-font-size', clamp(edge.data('fontSize'), 8, 72, 10));
+  setRangeValue('ie-width', clamp(edge.data('width'), 1, 12, 1.5));
+  $('ie-line-btn').classList.toggle('active', !isArrow); $('ie-arrow-btn').classList.toggle('active', isArrow);
+  const dashed = edge.data('lineStyle') === 'dashed', curved = edge.data('curve') === 'curved';
+  $('ie-solid-btn').classList.toggle('active', !dashed); $('ie-dashed-btn').classList.toggle('active', dashed);
+  $('ie-straight-btn').classList.toggle('active', !curved); $('ie-curved-btn').classList.toggle('active', curved);
+  if (open) setInspectorOpen(true);
 }
+function focusNameInput() { $('ii-name')?.focus(); $('ii-name')?.select(); }
 
-function focusNameInput() {
-  const inp = $('ii-name');
-  inp.focus();
-  inp.select();
+// CUSTOM ICONS
+function safeImageURL(url) {
+  if (typeof url !== 'string') return false;
+  if (/^data:image\/(png|jpe?g|gif|webp|svg\+xml|bmp|avif|x-icon)[;,]/i.test(url)) return true;
+  try { return ['http:','https:','blob:'].includes(new URL(url).protocol); } catch (_) { return false; }
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  CUSTOM NODE ICON
-// ─────────────────────────────────────────────────────────────────
-
-/** Apply an image URL (data: or https:) as the node icon */
 function applyNodeImage(node, url) {
-  node.data('iconSvg', url);
-  node.data('customImg', url);
-  node.data('customText', null);
-
-  // Update inspector preview
-  const preview = $('upload-preview');
-  preview.src = url;
-  preview.classList.add('visible');
-
-  const iconEl = $('ii-icon');
-  iconEl.innerHTML = `<img src="${url}" alt="icon">`;
-
+  if (!node || node.removed() || isTextNode(node)) return;
+  if (!safeImageURL(url)) { showToast(t('invalidURL')); return; }
+  node.data({ iconSvg:url, customImg:url, customText:null });
+  if (selectedEl?.id() === node.id()) showNodeInspector(node, false);
   pushHistory();
 }
-
-/** Apply a text/emoji string as the node icon */
 function applyNodeText(node, text) {
-  if (!text.trim()) return;
-  const svg = textSvg(text.trim(), !isLight);
-  node.data('iconSvg', svg);
-  node.data('customText', text.trim());
-  node.data('customImg', null);
-
-  const preview = $('upload-preview');
-  preview.src = '';
-  preview.classList.remove('visible');
-
-  const type = getType(node.data('type'));
-  const iconEl = $('ii-icon');
-  iconEl.innerHTML = '';
-  iconEl.textContent = text.trim();
-
+  if (!node || node.removed() || isTextNode(node) || !String(text).trim()) return;
+  text = String(text).trim();
+  node.data({ iconSvg:textSvg(text, !isCanvasLight()), customText:text, customImg:null });
+  if (selectedEl?.id() === node.id()) showNodeInspector(node, false);
   pushHistory();
 }
-
-/** Reset node icon to default entity type icon */
 function resetNodeIcon(node) {
-  const type = getType(node.data('type'));
-  node.data('iconSvg', getIconUri(type));
-  node.data('customImg', null);
-  node.data('customText', null);
-
-  const preview = $('upload-preview');
-  preview.src = '';
-  preview.classList.remove('visible');
-
-  const iconEl = $('ii-icon');
-  iconEl.innerHTML = '';
-  iconEl.textContent = type.icon;
-  $('ii-text-icon').value = '';
-  $('ii-flaticon-url').value = '';
-
+  if (!node || node.removed()) return;
+  node.data({ iconSvg:getIconUri(getType(node.data('type'))), customImg:null, customText:null });
+  if (selectedEl?.id() === node.id()) showNodeInspector(node, false);
   pushHistory();
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  ALIGNMENT — ALIGN & DISTRIBUTE
-// ─────────────────────────────────────────────────────────────────
-
-/** Get currently selected nodes (falls back to all nodes if none selected) */
-function getTargetNodes() {
-  const sel = cy.nodes(':selected');
-  return sel.length >= 2 ? sel : cy.nodes();
+function applyFlaticonURL() {
+  if (!liveSelection('node')) return;
+  let url = $('ii-flaticon-url').value.trim();
+  if (!url) return;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    // Do not accidentally reinterpret direct CDN URLs as a different icon ID.
+    if (host === 'flaticon.com' || host === 'www.flaticon.com') {
+      const match = parsed.pathname.match(/_(\d+)\/?$/) || [null, parsed.searchParams.get('related_id')];
+      if (match[1] && /^\d+$/.test(match[1])) {
+        const id = match[1]; url = 'https://cdn-icons-png.flaticon.com/512/' + Math.floor(Number(id) / 1000) + '/' + id + '.png';
+        setValue('ii-flaticon-url', url);
+      }
+    }
+    if (!['https:','http:'].includes(parsed.protocol)) throw new Error('Invalid protocol');
+  } catch (_) { showToast(t('invalidURL')); return; }
+  applyNodeImage(selectedEl, url);
 }
 
-/** Align selected nodes to same Y (horizontal line) */
+// ALIGN AND DISTRIBUTE: retain the original fallback to all nodes.
+function getTargetNodes() { const selected = cy.nodes(':selected'); return selected.length >= 2 ? selected : cy.nodes(); }
 function alignHorizontal() {
   const nodes = getTargetNodes();
-  if (nodes.length < 2) { showToast('Select ≥ 2 entities first'); return; }
-  // Use median Y to minimise movement
-  const ys = nodes.map(n => n.position('y')).sort((a, b) => a - b);
-  const medY = ys[Math.floor(ys.length / 2)];
-  nodes.forEach(n => n.position('y', medY));
-  pushHistory();
-  showToast('Aligned horizontally');
+  if (nodes.length < 2) { showToast(currentLang === 'pt' ? 'Selecione pelo menos 2 entidades' : 'Select at least 2 entities'); return; }
+  const values = nodes.map(n => n.position('y')).sort((a,b) => a-b), median = values[Math.floor(values.length / 2)];
+  nodes.forEach(n => n.position('y', median)); pushHistory();
+  showToast(currentLang === 'pt' ? 'Alinhado horizontalmente' : 'Aligned horizontally');
 }
-
-/** Align selected nodes to same X (vertical column) */
 function alignVertical() {
   const nodes = getTargetNodes();
-  if (nodes.length < 2) { showToast('Select ≥ 2 entities first'); return; }
-  const xs = nodes.map(n => n.position('x')).sort((a, b) => a - b);
-  const medX = xs[Math.floor(xs.length / 2)];
-  nodes.forEach(n => n.position('x', medX));
-  pushHistory();
-  showToast('Aligned vertically');
+  if (nodes.length < 2) { showToast(currentLang === 'pt' ? 'Selecione pelo menos 2 entidades' : 'Select at least 2 entities'); return; }
+  const values = nodes.map(n => n.position('x')).sort((a,b) => a-b), median = values[Math.floor(values.length / 2)];
+  nodes.forEach(n => n.position('x', median)); pushHistory();
+  showToast(currentLang === 'pt' ? 'Alinhado verticalmente' : 'Aligned vertically');
 }
-
-/** Distribute nodes evenly on the X axis */
-function distributeHorizontal() {
+function distributeNodes(axis) {
   const nodes = getTargetNodes();
-  if (nodes.length < 3) { showToast('Select ≥ 3 entities first'); return; }
-  const sorted = [...nodes].sort((a, b) => a.position('x') - b.position('x'));
-  const minX = sorted[0].position('x');
-  const maxX = sorted[sorted.length - 1].position('x');
-  const gap  = (maxX - minX) / (sorted.length - 1);
-  sorted.forEach((n, i) => n.position('x', minX + gap * i));
-  pushHistory();
-  showToast('Distributed horizontally');
+  if (nodes.length < 3) { showToast(currentLang === 'pt' ? 'Selecione pelo menos 3 entidades' : 'Select at least 3 entities'); return; }
+  const sorted = [...nodes].sort((a,b) => a.position(axis) - b.position(axis));
+  const min = sorted[0].position(axis), gap = (sorted[sorted.length-1].position(axis) - min) / (sorted.length-1);
+  sorted.forEach((node, i) => node.position(axis, min + gap * i)); pushHistory();
+  showToast(currentLang === 'pt' ? 'Entidades distribu\u00eddas' : 'Entities distributed');
 }
-
-/** Distribute nodes evenly on the Y axis */
-function distributeVertical() {
-  const nodes = getTargetNodes();
-  if (nodes.length < 3) { showToast('Select ≥ 3 entities first'); return; }
-  const sorted = [...nodes].sort((a, b) => a.position('y') - b.position('y'));
-  const minY = sorted[0].position('y');
-  const maxY = sorted[sorted.length - 1].position('y');
-  const gap  = (maxY - minY) / (sorted.length - 1);
-  sorted.forEach((n, i) => n.position('y', minY + gap * i));
-  pushHistory();
-  showToast('Distributed vertically');
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  DELETE
-// ─────────────────────────────────────────────────────────────────
+function distributeHorizontal() { distributeNodes('x'); }
+function distributeVertical() { distributeNodes('y'); }
 function deleteSelected() {
-  const sel = cy.elements(':selected');
-  if (sel.length) {
-    sel.remove();
-  } else if (selectedEl) {
-    selectedEl.remove();
-  } else {
-    return;
-  }
-  selectedEl = null;
-  showEmpty();
-  updateToolbar();
-  updateStatus();
-  pushHistory();
+  pushHistory(); // Commit any live inspector edit before deletion.
+  const targets = cy.elements(':selected');
+  if (targets.length) targets.remove(); else if (selectedEl && !selectedEl.removed()) selectedEl.remove(); else return;
+  if (connectSrc?.removed()) connectSrc = null;
+  selectedEl = null; showEmpty(); clearGuides(); updateToolbar(); updateStatus(); pushHistory();
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  HISTORY — UNDO / REDO
-// ─────────────────────────────────────────────────────────────────
+// SAVE / LOAD AND HISTORY
+function graphElementsJSON() {
+  return cy.elements().jsons().map(element => {
+    // Selection and hover are editor state, not document contents.
+    const copy = { ...element, data:{ ...element.data }, selected:false };
+    if (copy.data.type === 'text') delete copy.data.textHeight;
+    if (copy.data.customText) copy.data.iconSvg = textSvg(copy.data.customText,false);
+    copy.classes = String(copy.classes || '').split(/\s+/).filter(name => name && name !== 'hovered' && name !== 'connect-src').join(' ');
+    return copy;
+  });
+}
+function snapshotJSON() {
+  // Cytoscape restores nodes before edges; canonical ordering avoids false edits
+  // (and lost Redo) when a text node was inserted after an existing connection.
+  const elements = graphElementsJSON().sort((a,b) => {
+    if (a.group !== b.group) return a.group === 'nodes' ? -1 : 1;
+    return a.data.id < b.data.id ? -1 : a.data.id > b.data.id ? 1 : 0;
+  });
+  return JSON.stringify(elements);
+}
 function pushHistory() {
-  const snap = JSON.stringify(cy.elements().jsons());
+  if (!cy || exportBackup) return;
+  const snap = snapshotJSON();
+  if (history[histIdx] === snap) { updateToolbar(); return; }
   history = history.slice(0, histIdx + 1);
   history.push(snap);
   if (history.length > MAX_HIST) history.shift();
   histIdx = history.length - 1;
   updateToolbar();
 }
-
 function undo() {
+  pushHistory();
   if (histIdx <= 0) return;
-  histIdx--;
-  applySnapshot(history[histIdx]);
+  applySnapshot(history[--histIdx]);
 }
-
 function redo() {
+  if (snapshotJSON() !== history[histIdx]) { pushHistory(); return; }
   if (histIdx >= history.length - 1) return;
-  histIdx++;
-  applySnapshot(history[histIdx]);
+  applySnapshot(history[++histIdx]);
 }
-
+/** Validate the complete file before changing the current graph. */
+function normalizeGraph(input) {
+  let entries = input;
+  if (!Array.isArray(entries) && entries && typeof entries === 'object') {
+    if ('elements' in entries) entries = entries.elements;
+    if (!Array.isArray(entries) && entries && (Array.isArray(entries.nodes) || Array.isArray(entries.edges))) {
+      entries = [...(entries.nodes || []), ...(entries.edges || [])];
+    }
+  }
+  if (!Array.isArray(entries)) throw new Error('Expected a Cytoscape element array');
+  const ids = new Set(), nodeIds = new Set();
+  const normalized = entries.map(entry => {
+    if (!entry || typeof entry !== 'object' || !entry.data || typeof entry.data !== 'object' || Array.isArray(entry.data)) throw new Error('Invalid element');
+    const element = JSON.parse(JSON.stringify(entry));
+    const data = element.data;
+    if (data.id === undefined || data.id === null || String(data.id).trim() === '') throw new Error('Missing element ID');
+    data.id = String(data.id);
+    if (ids.has(data.id)) throw new Error('Duplicate ID: ' + data.id);
+    ids.add(data.id);
+    const group = element.group || (data.source !== undefined || data.target !== undefined ? 'edges' : 'nodes');
+    if (!['nodes','edges'].includes(group)) throw new Error('Invalid element group');
+    element.group = group;
+    element.selected = false;
+    element.classes = String(element.classes || '').split(/\s+/).filter(name => name && name !== 'hovered' && name !== 'connect-src').join(' ');
+    if (group === 'nodes') {
+      nodeIds.add(data.id);
+      data.type = canonicalType(data.type || 'person');
+      data.name = String(data.name ?? '');
+      data.description = String(data.description ?? '');
+      data.startDate = String(data.startDate ?? ''); data.endDate = String(data.endDate ?? '');
+      data.size = clamp(data.size, 40, 180, 68);
+      data.fontSize = clamp(data.fontSize, 8, 48, data.type === 'text' ? 18 : 11);
+      data.descDist = clamp(data.descDist, 0, 150, 42);
+      data.textWidth = clamp(data.textWidth, 80, 1000, 280);
+      data.textHeight = Math.max(24, Number(data.textHeight) || 30);
+      data.textColor = hexColor(data.textColor);
+      data.customText = data.customText == null ? null : String(data.customText);
+      data.customImg = safeImageURL(data.customImg) ? data.customImg : null;
+      if (data.type === 'text') data.iconSvg = '';
+      else if (data.customText) data.iconSvg = textSvg(data.customText, !isCanvasLight());
+      else if (data.customImg) data.iconSvg = data.customImg;
+      else if (!safeImageURL(data.iconSvg)) data.iconSvg = getIconUri(getType(data.type));
+      if (data.parent != null) data.parent = String(data.parent);
+      if (element.position) {
+        if (!Number.isFinite(Number(element.position.x)) || !Number.isFinite(Number(element.position.y))) throw new Error('Invalid position');
+        element.position = { x:Number(element.position.x), y:Number(element.position.y) };
+      }
+    } else {
+      if (data.source == null || data.target == null) throw new Error('Missing connection endpoint');
+      data.source = String(data.source); data.target = String(data.target);
+      data.label = String(data.label ?? '');
+      data.edgeType = data.edgeType === 'arrow' ? 'arrow' : 'line';
+      data.color = hexColor(data.color ?? data.lineColor);
+      data.textColor = hexColor(data.textColor ?? data.labelColor);
+      data.fontSize = clamp(data.fontSize, 8, 72, 10);
+      data.width = clamp(data.width, 1, 12, 1.5);
+      data.lineStyle = data.lineStyle === 'dashed' ? 'dashed' : 'solid';
+      // A missing curve field keeps the original parallel-edge Bezier routing.
+      if (data.curve != null) data.curve = data.curve === 'curved' ? 'curved' : 'straight';
+    }
+    return element;
+  });
+  const parents = new Map();
+  normalized.forEach(element => {
+    const data = element.data;
+    if (element.group === 'edges' && (!nodeIds.has(data.source) || !nodeIds.has(data.target))) throw new Error('Connection refers to a missing node');
+    if (element.group === 'nodes' && data.parent != null) {
+      if (!nodeIds.has(data.parent)) throw new Error('Missing parent');
+      parents.set(data.id, data.parent);
+    }
+  });
+  for (const id of parents.keys()) {
+    const visited = new Set([id]);
+    let parent = parents.get(id);
+    while (parent != null) {
+      if (visited.has(parent)) throw new Error('Cyclic parent hierarchy');
+      visited.add(parent); parent = parents.get(parent);
+    }
+  }
+  return normalized;
+}
 function applySnapshot(snap) {
-  if (connectSrc) { connectSrc.removeClass('connect-src'); connectSrc = null; }
-  selectedEl = null;
-  cy.elements().remove();
-  cy.add(JSON.parse(snap));
-  showEmpty();
-  updateToolbar();
-  updateStatus();
+  const elements = normalizeGraph(JSON.parse(snap));
+  const previous = graphElementsJSON();
+  setMode('select'); selectedEl = null;
+  cy.startBatch();
+  try {
+    cy.elements().remove(); cy.add(elements);
+    cy.nodes().forEach(syncTextDimensions);
+  } catch (error) {
+    cy.elements().remove(); cy.add(previous); throw error;
+  } finally { cy.endBatch(); }
+  clearGuides(); showEmpty(); updateToolbar(); updateStatus(); scheduleDescriptions();
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  TOOLBAR STATE
-// ─────────────────────────────────────────────────────────────────
-function updateToolbar() {
-  const hasSel = !!(selectedEl || cy.elements(':selected').length);
-  $('btn-delete').disabled = !hasSel;
-  $('btn-undo').disabled   = histIdx <= 0;
-  $('btn-redo').disabled   = histIdx >= history.length - 1;
+function downloadData(data, filename) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type:'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url; anchor.download = filename; anchor.style.display = 'none';
+  document.body.appendChild(anchor); anchor.click(); anchor.remove();
+  // Let the browser consume the object URL before releasing it.
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  STATUS BAR
-// ─────────────────────────────────────────────────────────────────
-function updateStatus() {
-  const n = cy.nodes().length;
-  const e = cy.edges().length;
-  $('sb-nodes').textContent = `${n} ${n === 1 ? 'entity' : 'entities'}`;
-  $('sb-edges').textContent = `${e} ${e === 1 ? 'connection' : 'connections'}`;
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  EXPORT HELPERS (Merge description into label for PNG/PDF)
-// ─────────────────────────────────────────────────────────────────
-function prepareForExport() {
-  cy.nodes().forEach(n => {
-    const desc = n.data('description');
-    if (desc) {
-      n.data('originalName', n.data('name'));
-      n.data('name', n.data('name') + '\n\n\n' + desc);
-    }
-  });
-}
-
-function restoreAfterExport() {
-  cy.nodes().forEach(n => {
-    const orig = n.data('originalName');
-    if (orig !== undefined) {
-      n.data('name', orig);
-      n.removeData('originalName');
-    }
-  });
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  EXPORT — PNG  (4. correct background color)
-// ─────────────────────────────────────────────────────────────────
-function exportPNG() {
-  if (!cy.elements().length) { showToast('Add some entities first!'); return; }
-
-  // Use current theme background color
-  const bgColor = isLight ? '#f0f0f0' : '#0c0c0c';
-
-  prepareForExport();
-  const imgData = cy.png({ scale: 3, bg: bgColor, full: true });
-  restoreAfterExport();
-  
-  const a = document.createElement('a');
-  a.href     = imgData;
-  a.download = `schema_${Date.now()}.png`;
-  a.click();
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  EXPORT — PDF
-// ─────────────────────────────────────────────────────────────────
-function exportPDF() {
-  if (!cy.elements().length) { showToast('Add some entities first!'); return; }
-
-  const { jsPDF }  = window.jspdf;
-  const bgColor = isLight ? '#ffffff' : '#0c0c0c';
-  const bb         = cy.elements().boundingBox();
-  const isLandscape = bb.w >= bb.h;
-
-  const doc  = new jsPDF({ orientation: isLandscape ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
-  const pW   = doc.internal.pageSize.getWidth();
-  const pH   = doc.internal.pageSize.getHeight();
-
-  if (isLight) {
-    doc.setFillColor(255,255,255);
-  } else {
-    doc.setFillColor(12,12,12);
-  }
-  doc.rect(0, 0, pW, pH, 'F');
-
-  const textColor = isLight ? [0,0,0] : [240,240,240];
-  const dimColor  = isLight ? [80,80,80] : [180,180,180];
-
-  doc.setTextColor(...textColor);
-  doc.setFontSize(14);
-  doc.setFont('helvetica', 'bold');
-  doc.text('SCHEMA', 14, 17);
-
-  doc.setFontSize(8);
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(...dimColor);
-  const dateStr = new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-  doc.text(`Visual Link Schema  ·  ${dateStr}`, 14, 23.5);
-
-  const n = cy.nodes().length;
-  const e = cy.edges().length;
-  doc.text(`${n} ${n === 1 ? 'entity' : 'entities'}  ·  ${e} ${e === 1 ? 'connection' : 'connections'}`, pW - 14, 23.5, { align: 'right' });
-
-  doc.setDrawColor(isLight ? 220 : 50, isLight ? 220 : 50, isLight ? 220 : 50);
-  doc.line(14, 27, pW - 14, 27);
-
-  const margin = 14;
-  const imgY   = 31;
-  const imgW   = pW - margin * 2;
-  const imgH   = pH - imgY - margin;
-  
-  prepareForExport();
-  const imgData = cy.png({ scale: 2.5, bg: bgColor, full: true });
-  restoreAfterExport();
-
-  doc.addImage(imgData, 'PNG', margin, imgY, imgW, imgH, undefined, 'FAST');
-
-  doc.save(`schema_${Date.now()}.pdf`);
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  SAVE / LOAD JSON
-// ─────────────────────────────────────────────────────────────────
 function exportJSON() {
-  if (!cy.elements().length) { showToast('Add some entities first!'); return; }
-  const dataStr = JSON.stringify(cy.elements().jsons(), null, 2);
-  const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
-  const a = document.createElement('a');
-  a.href = dataUri;
-  a.download = `schema_${Date.now()}.json`;
-  a.click();
+  if (!cy.elements().length) { showToast(t('noEntities')); return; }
+  pushHistory();
+  downloadData(JSON.stringify(graphElementsJSON(), null, 2), 'schema_' + Date.now() + '.json');
 }
-
 function importJSON(file) {
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const data = JSON.parse(e.target.result);
-      applySnapshot(JSON.stringify(data));
-      pushHistory();
-      showToast('Schema loaded successfully!');
-    } catch(err) {
-      showToast('Error loading JSON');
-    }
-  };
-  reader.readAsText(file);
-}
-
-// ─────────────────────────────────────────────────────────────────
-//  IMPORT — CSV / XLSX
-// ─────────────────────────────────────────────────────────────────
-function importFile(file) {
-  const ext    = file.name.split('.').pop().toLowerCase();
-  const reader = new FileReader();
-
-  if (ext === 'csv') {
-    reader.onload = e => {
-      const wb = XLSX.read(e.target.result, { type: 'string' });
-      processRows(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]));
+  if (!file) return Promise.resolve(false);
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = event => {
+      try {
+        const data = normalizeGraph(JSON.parse(event.target.result));
+        pushHistory(); applySnapshot(JSON.stringify(data)); pushHistory(); fitGraph(); showToast(t('loaded')); resolve(true);
+      } catch (error) { console.warn('Schema import rejected:', error); showToast(t('invalidJSON')); resolve(false); }
     };
+    reader.onerror = () => { showToast(t('readError')); resolve(false); };
     reader.readAsText(file);
-  } else {
-    reader.onload = e => {
-      const wb = XLSX.read(e.target.result, { type: 'array' });
-      processRows(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]));
-    };
-    reader.readAsArrayBuffer(file);
-  }
+  });
+}
+function updateToolbar() {
+  if (!cy) return;
+  if ($('btn-delete')) $('btn-delete').disabled = !(selectedEl && !selectedEl.removed()) && !cy.elements(':selected').length;
+  if ($('btn-undo')) $('btn-undo').disabled = histIdx <= 0;
+  if ($('btn-redo')) $('btn-redo').disabled = histIdx >= history.length - 1;
+}
+function updateStatus() {
+  if (!cy) return;
+  const nodes = cy.nodes().length, edges = cy.edges().length;
+  setText('sb-nodes', nodes + ' ' + (currentLang === 'pt' ? (nodes === 1 ? 'entidade' : 'entidades') : (nodes === 1 ? 'entity' : 'entities')));
+  setText('sb-edges', edges + ' ' + (currentLang === 'pt' ? (edges === 1 ? 'conex\u00e3o' : 'conex\u00f5es') : (edges === 1 ? 'connection' : 'connections')));
+}
+function fitGraph() { cy.resize(); if (cy.elements().length) cy.fit(undefined, 44); }
+
+// PNG / PDF: keep names and selection intact, including when an export fails.
+function prepareForExport() {
+  if (exportBackup) return;
+  exportBackup = { names:new Map(), selected:cy.elements(':selected'), hovered:cy.elements('.hovered'), source:connectSrc };
+  cy.batch(() => {
+    cy.elements().unselect().removeClass('hovered connect-src');
+    cy.nodes().forEach(node => {
+      const desc = node.data('description');
+      if (desc) {
+        exportBackup.names.set(node.id(), node.data('name'));
+        node.data('name', node.data('name') + '\n\n\n' + desc);
+        syncTextDimensions(node);
+      }
+    });
+  });
+}
+function restoreAfterExport() {
+  if (!exportBackup) return;
+  const backup = exportBackup;
+  cy.batch(() => {
+    backup.names.forEach((name, id) => {
+      const node = cy.getElementById(id);
+      if (node.length) { node.data('name', name); syncTextDimensions(node); }
+    });
+    backup.selected.select(); backup.hovered.addClass('hovered');
+    if (backup.source && !backup.source.removed()) backup.source.addClass('connect-src');
+  });
+  exportBackup = null;
+  refreshInspector(false); scheduleDescriptions();
+}
+function exportPNG() {
+  if (!cy.elements().length) { showToast(t('noEntities')); return; }
+  try {
+    prepareForExport();
+    const bg = cleanBgEnabled ? '#ffffff' : isLight ? '#f0f0f0' : '#0c0c0c';
+    const image = cy.png({ scale:3, bg, full:true });
+    const anchor = document.createElement('a');
+    anchor.href = image; anchor.download = 'schema_' + Date.now() + '.png';
+    document.body.appendChild(anchor); anchor.click(); anchor.remove();
+  } catch (error) { console.error('PNG export failed:', error); showToast(t('exportError')); }
+  finally { restoreAfterExport(); }
+}
+function exportPDF() {
+  if (!cy.elements().length) { showToast(t('noEntities')); return; }
+  if (!window.jspdf?.jsPDF) { showToast(t('missingPDF')); return; }
+  try {
+    prepareForExport();
+    const light = isCanvasLight(), bg = light ? '#ffffff' : '#0c0c0c';
+    const bb = cy.elements().boundingBox();
+    const doc = new window.jspdf.jsPDF({ orientation:bb.w >= bb.h ? 'landscape' : 'portrait', unit:'mm', format:'a4' });
+    const pW = doc.internal.pageSize.getWidth(), pH = doc.internal.pageSize.getHeight();
+    doc.setFillColor(...(light ? [255,255,255] : [12,12,12])); doc.rect(0,0,pW,pH,'F');
+    doc.setTextColor(...(light ? [0,0,0] : [240,240,240])); doc.setFontSize(14); doc.setFont('helvetica','bold'); doc.text('SCHEMA',14,17);
+    doc.setFontSize(8); doc.setFont('helvetica','normal'); doc.setTextColor(...(light ? [80,80,80] : [180,180,180]));
+    const date = new Date().toLocaleDateString(currentLang === 'pt' ? 'pt-BR' : 'en', { year:'numeric', month:'long', day:'numeric' });
+    doc.text('Visual Link Schema  -  ' + date,14,23.5);
+    const count = cy.nodes().length + (currentLang === 'pt' ? ' entidades  -  ' : ' entities  -  ') + cy.edges().length + (currentLang === 'pt' ? ' conexoes' : ' connections');
+    doc.text(count,pW-14,23.5,{ align:'right' });
+    doc.setDrawColor(...(light ? [220,220,220] : [50,50,50])); doc.line(14,27,pW-14,27);
+    const image = cy.png({ scale:2.5, bg, full:true });
+    const props = doc.getImageProperties(image);
+    const availableW = pW-28, availableH = pH-45;
+    const ratio = Math.min(availableW/props.width, availableH/props.height);
+    const w = props.width*ratio, h = props.height*ratio;
+    doc.addImage(image,'PNG',14+(availableW-w)/2,31+(availableH-h)/2,w,h,undefined,'FAST');
+    doc.save('schema_' + Date.now() + '.pdf');
+  } catch (error) { console.error('PDF export failed:', error); showToast(t('exportError')); }
+  finally { restoreAfterExport(); }
 }
 
+// ORIGINAL CSV / XLSX IMPORT HELPERS (no new toolbar control added).
+function importFile(file) {
+  if (!window.XLSX) { showToast(t('missingSheet')); return; }
+  const csv = file.name.split('.').pop().toLowerCase() === 'csv';
+  const reader = new FileReader();
+  reader.onload = event => {
+    try {
+      const workbook = XLSX.read(event.target.result, { type:csv ? 'string' : 'array' });
+      processRows(XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]));
+    } catch (error) { console.warn('Spreadsheet import failed:', error); showToast(t('readError')); }
+  };
+  reader.onerror = () => showToast(t('readError'));
+  if (csv) reader.readAsText(file); else reader.readAsArrayBuffer(file);
+}
 function processRows(rows) {
-  if (!rows?.length) { showToast('No data found in file.'); return; }
-
-  let newNodes = 0;
-  let newEdges = 0;
-
+  if (!rows?.length) { showToast(currentLang === 'pt' ? 'Nenhum dado encontrado.' : 'No data found in file.'); return; }
+  pushHistory();
+  let newNodes = 0, newEdges = 0;
   rows.forEach(row => {
     const r = {};
-    for (const k in row) {
-      r[k.toLowerCase().trim().replace(/\s+/g, '_')] = String(row[k] ?? '').trim();
-    }
-
-    const srcName = r.source || r.source_name || r.from || '';
-    const srcType = r.source_type || r.from_type || 'person';
-    const tgtName = r.target || r.target_name || r.to  || '';
-    const tgtType = r.target_type || r.to_type  || 'person';
-    const label   = r.label  || r.relationship  || r.relation || '';
-    const eType   = (r.edge_type || r.type || '').toLowerCase() === 'arrow' ? 'arrow' : 'line';
-
+    Object.entries(row).forEach(([key,value]) => { r[key.toLowerCase().trim().replace(/\s+/g,'_')] = String(value ?? '').trim(); });
+    const srcName = r.source || r.source_name || r.from || '', srcType = r.source_type || r.from_type || 'person';
+    const tgtName = r.target || r.target_name || r.to || '', tgtType = r.target_type || r.to_type || 'person';
+    const label = r.label || r.relationship || r.relation || '';
+    const edgeType = (r.edge_type || r.type || '').toLowerCase() === 'arrow' ? 'arrow' : 'line';
     if (!srcName) return;
-
-    let src = cy.nodes().filter(n => n.data('name') === srcName).first();
-    if (!src.length) {
-      src = addNodeToGraph(srcType, srcName, {
-        x: 100 + Math.random() * 700,
-        y: 100 + Math.random() * 400,
-      });
-      newNodes++;
-    }
-
-    if (tgtName) {
-      let tgt = cy.nodes().filter(n => n.data('name') === tgtName).first();
-      if (!tgt.length) {
-        tgt = addNodeToGraph(tgtType, tgtName, {
-          x: 100 + Math.random() * 700,
-          y: 100 + Math.random() * 400,
-        });
-        newNodes++;
-      }
-
-      const dup = cy.edges().some(edge =>
-        (edge.data('source') === src.id() && edge.data('target') === tgt.id()) ||
-        (edge.data('source') === tgt.id() && edge.data('target') === src.id())
-      );
-
-      if (!dup) {
-        createEdge(src, tgt, eType);
-        if (label) cy.edges().last().data('label', label);
-        newEdges++;
-      }
-    }
+    let src = cy.nodes().filter(node => node.data('name') === srcName).first();
+    if (!src.length) { src = addNodeToGraph(srcType,srcName,{ x:100+Math.random()*700,y:100+Math.random()*400 }); newNodes++; }
+    if (!tgtName) return;
+    let tgt = cy.nodes().filter(node => node.data('name') === tgtName).first();
+    if (!tgt.length) { tgt = addNodeToGraph(tgtType,tgtName,{ x:100+Math.random()*700,y:100+Math.random()*400 }); newNodes++; }
+    const duplicate = cy.edges().some(edge => (edge.data('source') === src.id() && edge.data('target') === tgt.id()) || (edge.data('source') === tgt.id() && edge.data('target') === src.id()));
+    if (!duplicate) { createEdge(src,tgt,edgeType).data('label',label); newEdges++; }
   });
-
-  if (newNodes > 0) {
-    cy.layout({
-      name:              'cose',
-      animate:           true,
-      animationDuration: 700,
-      randomize:         false,
-      nodeRepulsion:     9000,
-      idealEdgeLength:   130,
-    }).run();
-    setTimeout(() => pushHistory(), 800);
-  }
-
+  if (newNodes) {
+    cy.layout({ name:'cose', animate:true, animationDuration:700, randomize:false, nodeRepulsion:9000, idealEdgeLength:130, stop:() => pushHistory() }).run();
+  } else pushHistory();
   updateStatus();
-  showToast(`Imported ${newNodes} entities · ${newEdges} connections`);
+  showToast(currentLang === 'pt' ? 'Importadas ' + newNodes + ' entidades e ' + newEdges + ' conex\u00f5es' : 'Imported ' + newNodes + ' entities - ' + newEdges + ' connections');
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  TOAST
-// ─────────────────────────────────────────────────────────────────
-function showToast(msg) {
-  const el = document.createElement('div');
-  el.className   = 'toast';
-  el.textContent = msg;
-  document.body.appendChild(el);
-  requestAnimationFrame(() => el.classList.add('show'));
-  setTimeout(() => {
-    el.classList.remove('show');
-    setTimeout(() => el.remove(), 260);
-  }, 2200);
+// DROPDOWN: the five actions are already in the supplied HTML.
+function menuIsOpen() { return !!$('file-menu') && !$('file-menu').hidden; }
+function menuItems() { return Array.from($('file-menu')?.querySelectorAll('[role="menuitem"]:not(:disabled)') || []); }
+function positionFileMenu() {
+  if (!menuIsOpen()) return;
+  const menu = $('file-menu'), button = $('btn-file-menu'), rect = button.getBoundingClientRect();
+  const viewport = window.visualViewport;
+  const leftLimit = viewport?.offsetLeft || 0, topLimit = viewport?.offsetTop || 0;
+  const width = viewport?.width || document.documentElement.clientWidth;
+  const height = viewport?.height || document.documentElement.clientHeight;
+  const rightLimit = leftLimit + width, bottomLimit = topLimit + height, gap = 8;
+  menu.style.width = Math.max(0, Math.min(210,width-gap*2)) + 'px';
+  const below = Math.max(0,bottomLimit-rect.bottom-gap*2), above = Math.max(0,rect.top-topLimit-gap*2);
+  const useBelow = below >= Math.min(menu.scrollHeight,220) || below >= above;
+  const available = Math.max(0,(useBelow ? below : above));
+  menu.style.maxHeight = available + 'px';
+  const menuHeight = Math.min(menu.scrollHeight,available);
+  const menuWidth = menu.getBoundingClientRect().width;
+  menu.style.left = Math.max(leftLimit+gap,Math.min(rect.right-menuWidth,rightLimit-menuWidth-gap)) + 'px';
+  menu.style.top = Math.max(topLimit+gap,useBelow ? rect.bottom+gap : rect.top-menuHeight-gap) + 'px';
+}
+function openFileMenu(focus = true, last = false) {
+  if (!$('file-menu')) return;
+  $('file-menu').hidden = false; $('btn-file-menu').setAttribute('aria-expanded','true'); positionFileMenu();
+  if (focus) { const items = menuItems(); (last ? items[items.length-1] : items[0])?.focus(); }
+}
+function closeFileMenu(restoreFocus = false) {
+  if (!$('file-menu')) return;
+  $('file-menu').hidden = true; $('btn-file-menu')?.setAttribute('aria-expanded','false');
+  if (restoreFocus) $('btn-file-menu')?.focus();
+}
+function initFileMenu() {
+  on('btn-file-menu','click',() => menuIsOpen() ? closeFileMenu(true) : openFileMenu());
+  on('btn-file-menu','keydown',event => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); openFileMenu(true,event.key === 'ArrowUp'); }
+  });
+  on('file-menu','keydown',event => {
+    const items = menuItems(), index = items.indexOf(document.activeElement);
+    let next = null;
+    if (event.key === 'ArrowDown') next = (index+1)%items.length;
+    if (event.key === 'ArrowUp') next = (index-1+items.length)%items.length;
+    if (event.key === 'Home') next = 0;
+    if (event.key === 'End') next = items.length-1;
+    if (next !== null) { event.preventDefault(); items[next]?.focus(); return; }
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeFileMenu(true); }
+    if (event.key === 'Tab') { closeFileMenu(true); }
+  });
+  document.addEventListener('pointerdown',event => {
+    if (menuIsOpen() && !$('file-menu').contains(event.target) && !$('btn-file-menu').contains(event.target)) closeFileMenu();
+  });
+  on('file-menu','focusout',() => setTimeout(() => {
+    if (menuIsOpen() && !$('file-menu').contains(document.activeElement) && document.activeElement !== $('btn-file-menu')) closeFileMenu();
+  },0));
+}
+function bindMenuAction(id, action) {
+  on(id,'click',() => { closeFileMenu(); action(); });
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  KEYBOARD SHORTCUTS
-// ─────────────────────────────────────────────────────────────────
-function initKeyboard() {
-  document.addEventListener('keydown', e => {
-    const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-
-    const ctrl = e.ctrlKey || e.metaKey;
-
-    switch (e.key) {
-      case 'Delete':
-      case 'Backspace':
-        deleteSelected();
-        break;
-
-      case 'Escape':
-        if (connectSrc) {
-          connectSrc.removeClass('connect-src');
-          connectSrc = null;
-          updateModePill('source');
-        } else if (mode !== 'select') {
-          setMode('select');
-        } else {
-          clearSelection();
-        }
-        break;
-
-      case 's': case 'S':
-        if (!ctrl) setMode('select');
-        break;
-      case 'l': case 'L':
-        setMode('line');
-        break;
-      case 'a': case 'A':
-        if (!ctrl) setMode('arrow');
-        break;
-      case 'f': case 'F':
-        cy.fit(undefined, 44);
-        break;
-      
-      case 'a': case 'A':
-        if (ctrl) {
-          e.preventDefault();
-          setMode('select');
-          cy.nodes().select();
-          updateToolbar();
-        } else {
-          setMode('arrow');
-        }
-        break;
-
-      case 'z':
-        if (ctrl) { e.preventDefault(); e.shiftKey ? redo() : undo(); }
-        break;
-      case 'y':
-        if (ctrl) { e.preventDefault(); redo(); }
-        break;
-    }
+// RESPONSIVE CANVAS: changes to the wrapping header must update hit coordinates.
+function scheduleResize() {
+  if (resizeFrame) return;
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = 0;
+    if (cy && !cy.destroyed()) cy.resize();
+    clearGuides(); scheduleDescriptions(); positionFileMenu();
+    if (timelineObj && $('timeline-modal')?.style.display !== 'none') timelineObj.redraw();
   });
 }
+function initResponsive() {
+  if (typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(scheduleResize);
+    [document.querySelector('.toolbar'),$('canvas-wrap'),$('workspace')].filter(Boolean).forEach(el => resizeObserver.observe(el));
+  }
+  window.addEventListener('resize',scheduleResize);
+  window.visualViewport?.addEventListener('resize',scheduleResize);
+  window.visualViewport?.addEventListener('scroll',positionFileMenu);
+  document.querySelector('.toolbar')?.addEventListener('scroll',positionFileMenu,{ passive:true });
+  on('btn-inspector','click',() => setInspectorOpen(!$('workspace').classList.contains('inspector-open')));
+  on('btn-close-inspector','click',() => { setInspectorOpen(false); $('btn-inspector')?.focus(); });
+  document.fonts?.ready.then(() => { cy.nodes().forEach(syncTextDimensions); scheduleResize(); });
+  scheduleResize();
+}
 
-// ─────────────────────────────────────────────────────────────────
-//  PALETTE INIT
-// ─────────────────────────────────────────────────────────────────
+// PALETTE AND TYPE SELECT
 function initPalette() {
-  const list = $('palette-list');
+  const list = $('palette-list'); list.replaceChildren();
   ENTITY_TYPES.forEach(type => {
-    const item = document.createElement('div');
-    item.className      = 'palette-item';
-    item.dataset.typeId = type.id;
-    const iconSpan = document.createElement('span');
-    iconSpan.className = 'palette-icon';
+    const item = document.createElement('button'); item.type = 'button'; item.className = 'palette-item'; item.dataset.typeId = type.id;
+    const icon = document.createElement('span'); icon.className = 'palette-icon';
     if (type.iconUri) {
-      const img = document.createElement('img');
-      img.src    = type.iconUri;
-      img.width  = 20;
-      img.height = 20;
-      img.style.cssText = 'vertical-align:middle;display:block';
-      iconSpan.appendChild(img);
-    } else {
-      iconSpan.textContent = type.icon;
-    }
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'palette-name';
-    item.append(iconSpan, nameSpan);
-    item.addEventListener('click', () => addEntityFromPalette(type.id));
-    list.appendChild(item);
+      const image = document.createElement('img'); image.src = type.iconUri; image.width = 20; image.height = 20; image.alt = '';
+      image.style.cssText = 'vertical-align:middle;display:block'; icon.appendChild(image);
+    } else icon.textContent = type.icon;
+    const name = document.createElement('span'); name.className = 'palette-name';
+    item.append(icon,name); item.addEventListener('click',() => addEntityFromPalette(type.id)); list.appendChild(item);
   });
   refreshPaletteNames();
 }
-
 function refreshPaletteNames() {
-  $('palette-list').querySelectorAll('.palette-item').forEach(item => {
-    const localName = getEntityLocalName(item.dataset.typeId);
-    item.title = localName;
-    item.querySelector('.palette-name').textContent = localName;
+  $('palette-list')?.querySelectorAll('.palette-item').forEach(item => {
+    const name = getEntityLocalName(item.dataset.typeId); item.title = name; item.setAttribute('aria-label',name);
+    item.querySelector('.palette-name').textContent = name;
   });
 }
-
-// ─────────────────────────────────────────────────────────────────
-//  NODE TYPE SELECT (inspector) INIT
-// ─────────────────────────────────────────────────────────────────
 function initTypeSelect() {
-  const sel = $('ii-type');
-  ENTITY_TYPES.forEach(type => {
-    const opt = document.createElement('option');
-    opt.value = type.id;
-    sel.appendChild(opt);
-  });
+  $('ii-type').replaceChildren();
+  ENTITY_TYPES.forEach(type => { const option = document.createElement('option'); option.value = type.id; $('ii-type').appendChild(option); });
   refreshTypeSelect();
 }
-
 function refreshTypeSelect() {
-  Array.from($('ii-type').options).forEach(opt => {
-    const type = getType(opt.value);
-    opt.textContent = `${type.icon}  ${getEntityLocalName(type.id)}`;
-  });
+  Array.from($('ii-type')?.options || []).forEach(option => { const type = getType(option.value); option.textContent = type.icon + '  ' + getEntityLocalName(type.id); });
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  TOOLBAR EVENTS
-// ─────────────────────────────────────────────────────────────────
+// TOOLBAR EVENTS
+function closeStartup() { if ($('startup-modal')) $('startup-modal').style.display = 'none'; $('btn-select')?.focus(); scheduleResize(); }
+function closeTimeline() { if ($('timeline-modal')) $('timeline-modal').style.display = 'none'; $('btn-timeline')?.focus(); }
 function initToolbar() {
-  $('btn-select').onclick = () => setMode('select');
-  $('btn-line').onclick   = () => setMode('line');
-  $('btn-arrow').onclick  = () => setMode('arrow');
-
-  $('btn-undo').onclick   = undo;
-  $('btn-redo').onclick   = redo;
-  $('btn-delete').onclick = deleteSelected;
-
-  $('btn-fit').onclick    = () => cy.fit(undefined, 44);
-  $('btn-png').onclick    = exportPNG;
-  $('btn-pdf').onclick    = exportPDF;
-
-  if ($('btn-save')) $('btn-save').onclick = exportJSON;
-  if ($('btn-load')) $('btn-load').onclick = () => $('load-input').click();
-  if ($('load-input')) {
-    $('load-input').addEventListener('change', e => {
-      if (e.target.files[0]) {
-        importJSON(e.target.files[0]);
-        e.target.value = '';
-      }
-    });
-  }
-
-  if ($('btn-close-modal')) {
-    $('btn-close-modal').onclick = () => $('startup-modal').style.display = 'none';
-  }
-
-  // ── Alignment buttons ──────────────────────────────────
-  $('btn-align-h').onclick      = alignHorizontal;
-  $('btn-align-v').onclick      = alignVertical;
-  $('btn-distribute-h').onclick = distributeHorizontal;
-  $('btn-distribute-v').onclick = distributeVertical;
-
-  if ($('btn-flaticon-menu')) {
-    $('btn-flaticon-menu').onclick = () => window.open('https://www.flaticon.com/', '_blank');
-  }
-
-  // ── Guides toggle ──────────────────────────────────────
-  $('btn-guides').onclick = () => {
-    guidesEnabled = !guidesEnabled;
-    $('btn-guides').classList.toggle('active', guidesEnabled);
+  on('btn-select','click',() => setMode('select')); on('btn-line','click',() => setMode('line')); on('btn-arrow','click',() => setMode('arrow'));
+  on('btn-text','click',addText); on('btn-undo','click',undo); on('btn-redo','click',redo); on('btn-delete','click',deleteSelected); on('btn-fit','click',fitGraph);
+  bindMenuAction('btn-png',exportPNG); bindMenuAction('btn-pdf',exportPDF); bindMenuAction('btn-save',exportJSON);
+  bindMenuAction('btn-load',() => $('load-input')?.click());
+  bindMenuAction('btn-flaticon-menu',() => window.open('https://www.flaticon.com/','_blank','noopener,noreferrer'));
+  on('load-input','change',event => { const file = event.target.files[0]; event.target.value = ''; if (file) importJSON(file); });
+  on('file-input','change',event => { const file = event.target.files[0]; event.target.value = ''; if (file) importFile(file); });
+  on('btn-import','click',() => $('file-input')?.click());
+  on('btn-close-modal','click',closeStartup);
+  on('btn-align-h','click',alignHorizontal); on('btn-align-v','click',alignVertical);
+  on('btn-distribute-h','click',distributeHorizontal); on('btn-distribute-v','click',distributeVertical);
+  on('btn-guides','click',() => {
+    guidesEnabled = !guidesEnabled; $('btn-guides').classList.toggle('active',guidesEnabled);
     if (!guidesEnabled) clearGuides();
-    showToast(guidesEnabled ? 'Alignment guides ON' : 'Alignment guides OFF');
-  };
-  // Guides are ON by default — mark button active
-  $('btn-guides').classList.add('active');
-
-  // ── Clean Background toggle ────────────────────────
-  $('toggle-clean-bg').onchange = function() {
-    cleanBgEnabled = this.checked;
-    $('canvas-wrap').classList.toggle('clean-bg', cleanBgEnabled);
-    // Also override cytoscape container bg
-    if (cleanBgEnabled) {
-      $('cy').style.background = '#ffffff';
-    } else {
-      $('cy').style.background = '';
-    }
-    showToast(cleanBgEnabled
-      ? (currentLang === 'pt' ? 'Fundo limpo ativado' : 'Clean background ON')
-      : (currentLang === 'pt' ? 'Fundo limpo desativado' : 'Clean background OFF')
-    );
-  };
-
-  // ── Autosave toggle ────────────────────────────────
-  $('toggle-autosave').onchange = async function() {
-    autosaveEnabled = this.checked;
+    showToast(currentLang === 'pt' ? (guidesEnabled ? 'Guias ativadas' : 'Guias desativadas') : (guidesEnabled ? 'Alignment guides ON' : 'Alignment guides OFF'));
+  });
+  $('btn-guides')?.classList.add('active');
+  on('toggle-clean-bg','change',event => {
+    cleanBgEnabled = event.target.checked; $('canvas-wrap').classList.toggle('clean-bg',cleanBgEnabled);
+    $('cy').style.background = cleanBgEnabled ? '#ffffff' : '';
+    applyCyTheme();
+    showToast(currentLang === 'pt' ? (cleanBgEnabled ? 'Fundo limpo ativado' : 'Fundo limpo desativado') : (cleanBgEnabled ? 'Clean background ON' : 'Clean background OFF'));
+  });
+  on('toggle-autosave','change',async event => {
+    autosaveEnabled = event.target.checked;
     if (autosaveEnabled) {
       await setupAutosave();
-      if (autosaveEnabled) { // check again in case user cancelled picker
-        showToast(currentLang === 'pt' ? `Salvamento automático: ${autosaveMinutes}min` : `Autosave: every ${autosaveMinutes}min`);
-      }
+      if (autosaveEnabled) showToast(currentLang === 'pt' ? 'Salvamento autom\u00e1tico: ' + autosaveMinutes + 'min' : 'Autosave: every ' + autosaveMinutes + 'min');
     } else {
-      if (autosaveTimer) { clearInterval(autosaveTimer); autosaveTimer = null; }
-      showToast(currentLang === 'pt' ? 'Salvamento automático desativado' : 'Autosave OFF');
+      autosaveSetupVersion++;
+      if (autosaveTimer) clearInterval(autosaveTimer);
+      autosaveTimer = null;
+      showToast(currentLang === 'pt' ? 'Salvamento autom\u00e1tico desativado' : 'Autosave OFF');
     }
-  };
-  $('autosave-interval').onchange = function() {
-    autosaveMinutes = Number(this.value);
-    if (autosaveEnabled) setupAutosave();
-  };
-
-  // ── Timeline ───────────────────────────────────────
-  $('btn-timeline').onclick = showTimeline;
-  $('btn-close-timeline').onclick = () => $('timeline-modal').style.display = 'none';
-
-  // Theme & language
-  $('btn-theme').onclick = toggleTheme;
-  $('btn-lang').onclick  = toggleLang;
+  });
+  on('autosave-interval','change',event => { autosaveMinutes = clamp(event.target.value,1,1440,10); if (autosaveEnabled) setupAutosave(); });
+  on('btn-timeline','click',showTimeline); on('btn-close-timeline','click',closeTimeline);
+  on('btn-theme','click',toggleTheme); on('btn-lang','click',toggleLang);
+  initFileMenu();
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  INSPECTOR EVENTS
-// ─────────────────────────────────────────────────────────────────
+// INSPECTOR EVENTS: live input + committed history on change.
+function bindInspectorField(id, kind, key, parse = value => value, after = null) {
+  const update = event => {
+    if (!liveSelection(kind)) return;
+    const element = selectedEl;
+    element.data(key,parse(event.target.value));
+    if (kind === 'node') syncTextDimensions(element);
+    if (after) after(element,event.target.value);
+    if (event.type === 'change') pushHistory();
+  };
+  on(id,'input',update); on(id,'change',update);
+}
 function initInspector() {
-  // Node: name input
-  $('ii-name').addEventListener('input', function () {
-    if (selectedEl?.isNode()) {
-      selectedEl.data('name', this.value);
-      $('ii-title').textContent = this.value || '—';
-    }
+  bindInspectorField('ii-name','node','name',String,(node,value) => setText('ii-title',value || '\u2014'));
+  bindInspectorField('ii-size','node','size',value => clamp(value,40,180,68));
+  bindInspectorField('ii-font-size','node','fontSize',value => clamp(value,8,48,11),(node) => setText('ii-font-size-value',node.data('fontSize')+'px'));
+  bindInspectorField('ii-desc','node','description',String);
+  bindInspectorField('ii-desc-dist','node','descDist',value => clamp(value,0,150,42));
+  bindInspectorField('ii-start-date','node','startDate',String,(_node,value) => { if ($('ii-end-date')) $('ii-end-date').min = value; });
+  bindInspectorField('ii-end-date','node','endDate',String);
+  bindInspectorField('ii-text-width','node','textWidth',value => clamp(value,80,1000,280),node => setText('ii-text-width-value',node.data('textWidth')+'px'));
+  bindInspectorField('ii-text-color','node','textColor',value => hexColor(value));
+  on('btn-reset-text-color','click',() => { if (liveSelection('node')) { selectedEl.data('textColor',null); showNodeInspector(selectedEl,false); pushHistory(); } });
+  on('ii-type','change',event => {
+    if (!liveSelection('node')) return;
+    const node = selectedEl, type = getType(event.target.value), wasText = isTextNode(node);
+    node.data({ type:type.id, iconSvg:getIconUri(type), customImg:null, customText:null });
+    if (type.id === 'text' && !wasText && node.data('fontSize') === 11) node.data('fontSize',18);
+    syncTextDimensions(node); showNodeInspector(node,false); pushHistory();
   });
-  $('ii-name').addEventListener('change', () => pushHistory());
-
-  // Node: size slider
-  $('ii-size').addEventListener('input', function () {
-    if (selectedEl?.isNode()) selectedEl.data('size', Number(this.value));
-  });
-  $('ii-size').addEventListener('change', () => pushHistory());
-
-  // Node: font size slider
-  if ($('ii-font-size')) {
-    $('ii-font-size').addEventListener('input', function () {
-      if (selectedEl?.isNode()) selectedEl.data('fontSize', Number(this.value));
-    });
-    $('ii-font-size').addEventListener('change', () => pushHistory());
-  }
-
-  // Node: description & dates
-  if ($('ii-desc')) {
-    $('ii-desc').addEventListener('input', function() {
-      if (selectedEl?.isNode()) selectedEl.data('description', this.value);
-    });
-    $('ii-desc').addEventListener('change', () => pushHistory());
-  }
-  
-  if ($('ii-desc-dist')) {
-    $('ii-desc-dist').addEventListener('input', function() {
-      if (selectedEl?.isNode()) {
-        selectedEl.data('descDist', Number(this.value));
-        // Force cytoscape-node-html-label to update
-        selectedEl.position(selectedEl.position());
-      }
-    });
-    $('ii-desc-dist').addEventListener('change', () => pushHistory());
-  }
-
-  if ($('ii-start-date')) {
-    $('ii-start-date').addEventListener('input', function() {
-      if (selectedEl?.isNode()) selectedEl.data('startDate', this.value);
-    });
-    $('ii-start-date').addEventListener('change', () => pushHistory());
-  }
-  if ($('ii-end-date')) {
-    $('ii-end-date').addEventListener('input', function() {
-      if (selectedEl?.isNode()) selectedEl.data('endDate', this.value);
-    });
-    $('ii-end-date').addEventListener('change', () => pushHistory());
-  }
-
-  // Node: type select → swap icon
-  $('ii-type').addEventListener('change', function () {
-    if (selectedEl?.isNode()) {
-      const tp = getType(this.value);
-      selectedEl.data({
-        type:       this.value,
-        iconSvg:    getIconUri(tp),
-        customImg:  null,
-        customText: null,
-      });
-      const iconEl = $('ii-icon');
-      iconEl.innerHTML = '';
-      iconEl.textContent = tp.icon;
-      $('ii-kind').textContent = tp.name.toUpperCase();
-      $('upload-preview').classList.remove('visible');
-      $('ii-text-icon').value    = '';
-      $('ii-flaticon-url').value = '';
-      pushHistory();
-    }
-  });
-
-  // Node: delete
-  $('btn-del-node').onclick = deleteSelected;
-
-  // ── Custom icon: image upload ──────────────────────────
-  $('btn-upload-img').onclick = () => $('node-img-input').click();
-  $('node-img-input').addEventListener('change', e => {
-    const file = e.target.files[0];
-    if (!file || !selectedEl?.isNode()) return;
+  on('btn-del-node','click',deleteSelected); on('btn-del-edge','click',deleteSelected);
+  on('btn-upload-img','click',() => { if (liveSelection('node') && !isTextNode(selectedEl)) $('node-img-input').click(); });
+  on('node-img-input','change',event => {
+    const file = event.target.files[0]; event.target.value = '';
+    if (!file || !liveSelection('node') || isTextNode(selectedEl)) return;
+    if (!/^image\//i.test(file.type)) { showToast(t('invalidImage')); return; }
+    const node = selectedEl; // Capture the intended node before asynchronous reading.
     const reader = new FileReader();
-    reader.onload = ev => applyNodeImage(selectedEl, ev.target.result);
+    reader.onload = ev => { if (!node.removed()) applyNodeImage(node,ev.target.result); };
+    reader.onerror = () => showToast(t('readError'));
     reader.readAsDataURL(file);
-    e.target.value = '';
   });
-
-  // ── Custom icon: text/emoji ────────────────────────────
-  $('btn-apply-text-icon').onclick = () => {
-    if (selectedEl?.isNode()) applyNodeText(selectedEl, $('ii-text-icon').value);
-  };
-  $('ii-text-icon').addEventListener('keydown', e => {
-    if (e.key === 'Enter' && selectedEl?.isNode()) applyNodeText(selectedEl, e.target.value);
+  on('btn-apply-text-icon','click',() => { if (liveSelection('node')) applyNodeText(selectedEl,$('ii-text-icon').value); });
+  on('ii-text-icon','keydown',event => { if (event.key === 'Enter' && liveSelection('node')) { event.preventDefault(); applyNodeText(selectedEl,event.target.value); } });
+  on('btn-apply-flaticon','click',applyFlaticonURL);
+  on('ii-flaticon-url','keydown',event => { if (event.key === 'Enter') { event.preventDefault(); applyFlaticonURL(); } });
+  on('btn-reset-icon','click',() => { if (liveSelection('node')) resetNodeIcon(selectedEl); });
+  bindInspectorField('ie-label','edge','label',String);
+  bindInspectorField('ie-color','edge','color',value => hexColor(value));
+  bindInspectorField('ie-text-color','edge','textColor',value => hexColor(value));
+  bindInspectorField('ie-font-size','edge','fontSize',value => clamp(value,8,72,10),edge => setText('ie-font-size-value',edge.data('fontSize')+'px'));
+  bindInspectorField('ie-width','edge','width',value => clamp(value,1,12,1.5),edge => setText('ie-width-value',edge.data('width')+'px'));
+  [['btn-reset-edge-color','color'],['btn-reset-edge-text-color','textColor']].forEach(([id,key]) => {
+    on(id,'click',() => { if (liveSelection('edge')) { selectedEl.data(key,null); showEdgeInspector(selectedEl,false); pushHistory(); } });
   });
-
-  // ── Custom icon: Flaticon URL ──────────────────────────
-  // Accepts both page URLs (flaticon.com/free-icon/name_12345) and
-  // direct CDN URLs (cdn-icons-png.flaticon.com/…).
-  $('btn-apply-flaticon').onclick = () => {
-    let url = $('ii-flaticon-url').value.trim();
-    if (!url) return;
-
-    // Convert Flaticon page URL → CDN URL
-    // Pattern: https://www.flaticon.com/free-icon/NAME_ICONID or …?related_id=ICONID
-    const pageMatch = url.match(/flaticon\.com\/(?:free-icon|br\/free-icon)\/[^_]+_(\d+)/i)
-                   || url.match(/[?&]related_id=(\d+)/i)
-                   || url.match(/flaticon\.com\/.*?[_\/](\d{5,})/i);
-
-    if (pageMatch) {
-      const iconId = pageMatch[1];
-      const folder = Math.floor(parseInt(iconId) / 1000);
-      url = `https://cdn-icons-png.flaticon.com/512/${folder}/${iconId}.png`;
-      $('ii-flaticon-url').value = url;
-      showToast('URL convertida para CDN ✓');
-    }
-
-    if (!url.startsWith('http')) { showToast('URL inválida'); return; }
-    if (selectedEl?.isNode()) applyNodeImage(selectedEl, url);
-  };
-
-  // ── Reset icon ─────────────────────────────────────────
-  $('btn-reset-icon').onclick = () => {
-    if (selectedEl?.isNode()) resetNodeIcon(selectedEl);
-  };
-
-  // Edge: label
-  $('ie-label').addEventListener('input', function () {
-    if (selectedEl?.isEdge()) selectedEl.data('label', this.value);
-  });
-  $('ie-label').addEventListener('change', () => pushHistory());
-
-  // Edge: type toggle
-  $('ie-line-btn').onclick = () => {
-    if (selectedEl?.isEdge()) {
-      selectedEl.data('edgeType', 'line');
-      $('ie-line-btn').classList.add('active');
-      $('ie-arrow-btn').classList.remove('active');
-      $('ie-glyph').textContent = '—';
-      $('ie-kind').textContent  = t('lineConn');
-      pushHistory();
-    }
-  };
-
-  $('ie-arrow-btn').onclick = () => {
-    if (selectedEl?.isEdge()) {
-      selectedEl.data('edgeType', 'arrow');
-      $('ie-arrow-btn').classList.add('active');
-      $('ie-line-btn').classList.remove('active');
-      $('ie-glyph').textContent = '→';
-      $('ie-kind').textContent  = t('arrowConn');
-      pushHistory();
-    }
-  };
-
-  $('ie-solid-btn').onclick = () => {
-    if (selectedEl?.isEdge()) {
-      selectedEl.data('lineStyle', 'solid');
-      $('ie-solid-btn').classList.add('active');
-      $('ie-dashed-btn').classList.remove('active');
-      pushHistory();
-    }
-  };
-
-  $('ie-dashed-btn').onclick = () => {
-    if (selectedEl?.isEdge()) {
-      selectedEl.data('lineStyle', 'dashed');
-      $('ie-dashed-btn').classList.add('active');
-      $('ie-solid-btn').classList.remove('active');
-      pushHistory();
-    }
-  };
-
-  $('ie-straight-btn').onclick = () => {
-    if (selectedEl?.isEdge()) {
-      selectedEl.data('curve', 'straight');
-      $('ie-straight-btn').classList.add('active');
-      $('ie-curved-btn').classList.remove('active');
-      pushHistory();
-    }
-  };
-
-  $('ie-curved-btn').onclick = () => {
-    if (selectedEl?.isEdge()) {
-      selectedEl.data('curve', 'curved');
-      $('ie-curved-btn').classList.add('active');
-      $('ie-straight-btn').classList.remove('active');
-      pushHistory();
-    }
-  };
-
-  // Edge: delete
-  $('btn-del-edge').onclick = deleteSelected;
-
-  // ── Wall (border) color buttons ────────────────────
-  document.querySelectorAll('.wall-color-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const color = btn.dataset.wallColor;
-      // Update active state
-      document.querySelectorAll('.wall-color-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      // Apply to all selected nodes
-      const sel = cy.nodes(':selected');
-      const targets = sel.length ? sel : (selectedEl?.isNode() ? selectedEl : null);
-      if (targets) {
-        (targets.forEach ? targets : cy.collection().union(targets)).forEach(n => {
-          n.data('wallColor', color);
-        });
-        pushHistory();
-        showToast(currentLang === 'pt' ? 'Cor da parede alterada' : 'Wall color changed');
-      }
-    });
-  });
+  [
+    ['ie-line-btn','edgeType','line'], ['ie-arrow-btn','edgeType','arrow'],
+    ['ie-solid-btn','lineStyle','solid'], ['ie-dashed-btn','lineStyle','dashed'],
+    ['ie-straight-btn','curve','straight'], ['ie-curved-btn','curve','curved'],
+  ].forEach(([id,key,value]) => on(id,'click',() => {
+    if (liveSelection('edge')) { selectedEl.data(key,value); showEdgeInspector(selectedEl,false); pushHistory(); }
+  }));
+  document.querySelectorAll('.wall-color-btn').forEach(button => button.addEventListener('click',() => {
+    const selected = cy.nodes(':selected');
+    const targets = selected.length ? selected : liveSelection('node') ? selectedEl : cy.collection();
+    targets.filter(node => !isTextNode(node)).forEach(node => node.data('wallColor',button.dataset.wallColor));
+    document.querySelectorAll('.wall-color-btn').forEach(item => item.classList.toggle('active',item === button));
+    pushHistory();
+  }));
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  BOOTSTRAP
-// ─────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  initCy();
-  initPalette();
-  initTypeSelect();
-  initToolbar();
-  initInspector();
-  initKeyboard();
-
-  pushHistory();
-  updateToolbar();
-  updateStatus();
-});
-
-// ─────────────────────────────────────────────────────────────────
-//  AUTOSAVE
-// ─────────────────────────────────────────────────────────────────
-async function setupAutosave() {
-  if (autosaveTimer) { clearInterval(autosaveTimer); autosaveTimer = null; }
-  if (!autosaveEnabled) return;
-
-  // Ask for file handle on first activation so we can overwrite silently
-  try {
-    if (!autoSaveHandle && window.showSaveFilePicker) {
-      autoSaveHandle = await window.showSaveFilePicker({
-        suggestedName: 'schema.json',
-        types: [{ description: 'JSON File', accept: {'application/json': ['.json']} }]
-      });
+// KEYBOARD SHORTCUTS
+function visibleModal() {
+  if ($('timeline-modal') && getComputedStyle($('timeline-modal')).display !== 'none') return $('timeline-modal');
+  if ($('startup-modal') && getComputedStyle($('startup-modal')).display !== 'none') return $('startup-modal');
+  return null;
+}
+function initKeyboard() {
+  document.addEventListener('keydown',event => {
+    const modal = visibleModal();
+    if (modal) {
+      if (event.key === 'Escape') { event.preventDefault(); modal.id === 'startup-modal' ? closeStartup() : closeTimeline(); }
+      if (event.key === 'Tab') {
+        const controls = Array.from(modal.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')).filter(el => el.getClientRects().length);
+        const first = controls[0], last = controls[controls.length-1];
+        if (event.shiftKey && (document.activeElement === first || !modal.contains(document.activeElement))) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || !modal.contains(document.activeElement))) { event.preventDefault(); first?.focus(); }
+      }
+      return;
     }
-  } catch (err) {
-    // User cancelled file picker
-    $('toggle-autosave').checked = false;
-    autosaveEnabled = false;
+    if (menuIsOpen()) { if (event.key === 'Escape') { event.preventDefault(); closeFileMenu(true); } return; }
+    const active = document.activeElement;
+    if (['INPUT','TEXTAREA','SELECT'].includes(active?.tagName) || active?.isContentEditable) return;
+    const ctrl = event.ctrlKey || event.metaKey, key = event.key.toLowerCase();
+    if (ctrl) {
+      if (key === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); }
+      else if (key === 'y') { event.preventDefault(); redo(); }
+      else if (key === 'a') { event.preventDefault(); setMode('select'); cy.nodes().select(); selectedEl = cy.nodes(':selected').last(); if (!selectedEl.length) selectedEl = null; refreshInspector(false); updateToolbar(); }
+      return;
+    }
+    if (event.altKey || event.repeat) return;
+    switch (key) {
+      case 'delete': case 'backspace': event.preventDefault(); deleteSelected(); break;
+      case 'escape':
+        if (connectSrc) { connectSrc.removeClass('connect-src'); connectSrc = null; updateModePill('source'); }
+        else if (mode !== 'select') setMode('select');
+        else if (window.matchMedia('(max-width:900px)').matches && $('workspace')?.classList.contains('inspector-open')) setInspectorOpen(false);
+        else clearSelection();
+        break;
+      case 's': setMode('select'); break;
+      case 'l': setMode('line'); break;
+      case 'a': setMode('arrow'); break;
+      case 't': event.preventDefault(); addText(); break;
+      case 'f': fitGraph(); break;
+    }
+  });
+}
+function showToast(message) {
+  const element = document.createElement('div'); element.className = 'toast'; element.textContent = message; element.setAttribute('role','status');
+  document.body.appendChild(element); requestAnimationFrame(() => element.classList.add('show'));
+  setTimeout(() => { element.classList.remove('show'); setTimeout(() => element.remove(),260); },2600);
+}
+
+// AUTOSAVE: preserve file-handle mode and download fallback; no server storage.
+async function setupAutosave() {
+  const version = ++autosaveSetupVersion;
+  if (autosaveTimer) clearInterval(autosaveTimer);
+  autosaveTimer = null;
+  if (!autosaveEnabled) return;
+  try {
+    if (!autoSaveHandle && typeof window.showSaveFilePicker === 'function') {
+      autoSaveHandle = await window.showSaveFilePicker({ suggestedName:'schema.json', types:[{ description:'JSON File', accept:{ 'application/json':['.json'] } }] });
+    }
+  } catch (error) {
+    if (version === autosaveSetupVersion) { autosaveEnabled = false; if ($('toggle-autosave')) $('toggle-autosave').checked = false; }
+    if (error.name !== 'AbortError') { console.warn('Autosave setup failed:',error); showToast(t('autosaveError')); }
     return;
   }
-
-  autosaveTimer = setInterval(async () => {
-    if (!cy.elements().length) return;
-    const dataStr = JSON.stringify(cy.elements().jsons(), null, 2);
-    
+  if (version !== autosaveSetupVersion || !autosaveEnabled) return;
+  autosaveTimer = setInterval(autosaveOnce,autosaveMinutes*60*1000);
+}
+async function autosaveOnce() {
+  if (!autosaveEnabled || autosaveBusy || !cy.elements().length) return;
+  autosaveBusy = true;
+  try {
+    const data = JSON.stringify(graphElementsJSON(),null,2);
     if (autoSaveHandle) {
-      try {
-        const writable = await autoSaveHandle.createWritable();
-        await writable.write(dataStr);
-        await writable.close();
-        showToast(t('autoSaved'));
-      } catch (err) {
-        console.error('Autosave failed:', err);
-      }
-    } else {
-      // Fallback if browser doesn't support File System Access API
-      const blob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `schema_autosave_${Date.now()}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast(t('autoSaved'));
-    }
-  }, autosaveMinutes * 60 * 1000);
+      const writable = await autoSaveHandle.createWritable();
+      try { await writable.write(data); await writable.close(); }
+      catch (error) { try { await writable.abort?.(); } catch (_) { /* Preserve original failure. */ } throw error; }
+    } else downloadData(data,'schema_autosave_' + Date.now() + '.json');
+    showToast(t('autoSaved'));
+  } catch (error) { console.error('Autosave failed:',error); showToast(t('autosaveError')); }
+  finally { autosaveBusy = false; }
 }
 
-// ─────────────────────────────────────────────────────────────────
-//  TIMELINE
-// ─────────────────────────────────────────────────────────────────
+// TIMELINE
+function validDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(value + 'T00:00:00Z');
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0,10) === value;
+}
 function showTimeline() {
-  const nodesWithDates = cy.nodes().filter(n => n.data('startDate'));
-  if (!nodesWithDates.length) { showToast(currentLang === 'pt' ? 'Adicione Data Inicial nas entidades primeiro.' : 'Set Start Date on entities first.'); return; }
-
-  const container = $('vis-timeline-container');
-  container.innerHTML = '';
-
-  const items = new vis.DataSet(
-    nodesWithDates.map((n, i) => {
-      const type = getType(n.data('type'));
-      return {
-        id: n.id(),
-        content: `<strong>${type.icon} ${n.data('name')}</strong><br><span style="color:var(--text-dim);font-size:10px">${n.data('description') || ''}</span>`,
-        start: n.data('startDate'),
-        end: n.data('endDate') || undefined,
-        title: n.data('description') || n.data('name') // tooltip
-      };
-    })
-  );
-
-  const options = {
-    width: '100%',
-    height: '100%',
-    margin: { item: 10, axis: 5 },
-    showCurrentTime: false,
-  };
-
-  if (timelineObj) {
-    timelineObj.destroy();
+  const nodes = cy.nodes().filter(node => node.data('startDate'));
+  if (!nodes.length) { showToast(t('noDates')); return; }
+  if (!window.vis?.Timeline || !window.vis?.DataSet) { showToast(t('missingTimeline')); return; }
+  if (nodes.some(node => !validDate(node.data('startDate')) || (node.data('endDate') && (!validDate(node.data('endDate')) || node.data('endDate') < node.data('startDate'))))) {
+    showToast(t('invalidDates')); return;
   }
-  timelineObj = new vis.Timeline(container, items, options);
-
-  $('timeline-title').textContent = t('timelineTitle');
-  $('timeline-modal').style.display = 'flex';
+  try {
+    if (timelineObj) { timelineObj.destroy(); timelineObj = null; }
+    const container = $('vis-timeline-container'); container.replaceChildren();
+    const items = new window.vis.DataSet(nodes.map(node => ({
+      id:node.id(), content:'<strong>' + escapeXML(getType(node.data('type')).icon) + ' ' + escapeXML(node.data('name')) + '</strong><br>' +
+        '<span style="color:var(--text-dim);font-size:10px">' + escapeXML(node.data('description') || '') + '</span>',
+      start:node.data('startDate'), end:node.data('endDate') || undefined, title:escapeXML(node.data('description') || node.data('name')),
+    })));
+    setText('timeline-title',t('timelineTitle')); $('timeline-modal').style.display = 'flex';
+    timelineObj = new window.vis.Timeline(container,items,{ width:'100%', height:'100%', margin:{ item:10,axis:5 }, showCurrentTime:false });
+    requestAnimationFrame(() => { timelineObj?.redraw(); timelineObj?.fit(); });
+    $('btn-close-timeline')?.focus();
+  } catch (error) { console.error('Timeline failed:',error); closeTimeline(); showToast(t('missingTimeline')); }
 }
+
+// BOOTSTRAP
+function bootstrap() {
+  if (booted) return;
+  booted = true;
+  try {
+    if (typeof window.cytoscape !== 'function') throw new Error('Cytoscape did not load from the CDN.');
+    isLight = document.documentElement.classList.contains('light');
+    initCy(); initPalette(); initTypeSelect(); initToolbar(); initInspector(); initKeyboard(); initResponsive();
+    applyLang(); pushHistory(); updateToolbar(); updateStatus();
+    if ($('startup-error')) $('startup-error').hidden = true;
+    if (visibleModal()?.id === 'startup-modal') $('btn-close-modal')?.focus();
+  } catch (error) {
+    console.error('SCHEMA startup failed:',error);
+    if ($('startup-modal')) $('startup-modal').style.display = 'none';
+    let message = $('startup-error');
+    if (!message) { message = document.createElement('div'); message.id = 'startup-error'; message.setAttribute('role','alert'); document.body.appendChild(message); }
+    message.textContent = 'N\u00e3o foi poss\u00edvel iniciar o SCHEMA. Verifique sua conex\u00e3o e o carregamento das bibliotecas externas; depois recarregue a p\u00e1gina. / Unable to start SCHEMA. Check CDN access and reload. ' + error.message;
+    message.hidden = false;
+  }
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded',bootstrap,{ once:true });
+else bootstrap();

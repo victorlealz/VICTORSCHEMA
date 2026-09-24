@@ -3,1097 +3,323 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SCHEMA — Visual Link Builder</title>
+  <title>SCHEMA &mdash; Visual Link Builder</title>
   <meta name="description" content="A minimal tool for building visual schemas and link diagrams with entities and connections.">
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
   <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://unpkg.com/cytoscape-node-html-label@1.2.2/dist/cytoscape-node-html-label.min.js"></script>
   <script src="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.js"></script>
-  <link href="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
-
+  <link href="https://unpkg.com/vis-timeline@latest/standalone/umd/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css">
   <style>
-    /* =========================================================
-       RESET & BASE
-    ========================================================= */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+    /* Original theme and controls. No build step or extra runtime dependency. */
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
     :root {
-      /* ── Dark theme (default) ── */
-      --bg:         #0c0c0c;
-      --surface:    #111111;
-      --surface-2:  #191919;
-      --surface-3:  #222222;
-      --border:     #242424;
-      --border-mid: #333333;
-      --border-hi:  #484848;
-      --text:       #f0f0f0;
-      --text-dim:   #888888;
-      --text-muted: #4a4a4a;
-      --danger:     #e05555;
-      --accent:     #4a9eff;
-
-      --palette-w:    188px;
-      --inspector-w:  280px;
-      --toolbar-h:    50px;
-      --statusbar-h:  28px;
-      --radius-sm:    4px;
-      --radius:       6px;
-
-      /* canvas dot color */
-      --dot-color: #1f1f1f;
-      /* alignment guide color */
-      --guide-color: rgba(74,158,255,0.7);
+      --bg:#0c0c0c; --surface:#111111; --surface-2:#191919; --surface-3:#222222;
+      --border:#242424; --border-mid:#333333; --border-hi:#484848;
+      --text:#f0f0f0; --text-dim:#888888; --text-muted:#4a4a4a;
+      --danger:#e05555; --accent:#4a9eff; --palette-w:188px; --inspector-w:280px;
+      --toolbar-h:50px; --statusbar-h:28px; --radius-sm:4px; --radius:6px;
+      --dot-color:#1f1f1f; --guide-color:rgba(74,158,255,.7);
     }
-
-    /* ── Light theme override ── */
     :root.light {
-      --bg:         #f0f0f0;
-      --surface:    #fafafa;
-      --surface-2:  #f0f0f0;
-      --surface-3:  #e6e6e6;
-      --border:     #e2e2e2;
-      --border-mid: #cccccc;
-      --border-hi:  #999999;
-      --text:       #111111;
-      --text-dim:   #555555;
-      --text-muted: #aaaaaa;
-      --danger:     #cc2222;
-      --dot-color:  #d0d0d0;
-      --guide-color: rgba(74,130,255,0.8);
-    }
-
-    html, body {
-      height: 100%;
-      overflow: hidden;
-      font-family: 'Inter', system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      -webkit-font-smoothing: antialiased;
-      transition: background 0.2s, color 0.2s;
-    }
-
-    /* =========================================================
-       APP SHELL
-    ========================================================= */
-    .app {
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
-
-    /* =========================================================
-       TOOLBAR
-    ========================================================= */
-    .toolbar {
-      height: var(--toolbar-h);
-      min-height: var(--toolbar-h);
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      padding: 0 12px;
-      gap: 5px;
-      z-index: 50;
-      flex-shrink: 0;
-      transition: background 0.2s, border-color 0.2s;
-    }
-
-    .toolbar-logo {
-      font-size: 12.5px;
-      font-weight: 700;
-      letter-spacing: 4px;
-      color: var(--text);
-      margin-right: 3px;
-      user-select: none;
-      flex-shrink: 0;
-    }
-
-    .tb-sep {
-      width: 1px;
-      height: 22px;
-      background: var(--border-mid);
-      margin: 0 2px;
-      flex-shrink: 0;
-    }
-
-    .tb-spacer { flex: 1; }
-
-    .tb-group {
-      display: flex;
-      align-items: center;
-      gap: 3px;
-    }
-
-    /* =========================================================
-       BUTTONS
-    ========================================================= */
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 5px;
-      padding: 5px 10px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-mid);
-      background: transparent;
-      color: var(--text-dim);
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 11.5px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.12s, color 0.12s, border-color 0.12s;
-      white-space: nowrap;
-      user-select: none;
-      letter-spacing: 0.2px;
-      line-height: 1;
-    }
-
-    .btn:hover:not(:disabled) {
-      background: var(--surface-2);
-      color: var(--text);
-      border-color: var(--border-hi);
-    }
-
-    .btn.active {
-      background: var(--text);
-      color: var(--bg);
-      border-color: var(--text);
-      font-weight: 600;
-    }
-
-    .btn.active:hover:not(:disabled) {
-      opacity: 0.88;
-    }
-
-    .btn.danger {
-      color: var(--danger);
-      border-color: rgba(224, 85, 85, 0.22);
-    }
-
-    .btn.danger:hover:not(:disabled) {
-      background: rgba(224, 85, 85, 0.07);
-      border-color: var(--danger);
-    }
-
-    :root.light .btn.danger {
-      border-color: rgba(204, 34, 34, 0.22);
-    }
-
-    :root.light .btn.danger:hover:not(:disabled) {
-      background: rgba(204, 34, 34, 0.07);
-    }
-
-    .btn:disabled {
-      opacity: 0.26;
-      cursor: not-allowed;
-      pointer-events: none;
-    }
-
-    /* Lang button */
-    #btn-lang {
-      font-size: 10.5px;
-      font-weight: 700;
-      letter-spacing: 0.8px;
-      padding: 5px 9px;
-    }
-
-    /* Theme button */
-    #btn-theme {
-      font-size: 11px;
-      padding: 5px 9px;
-    }
-
-    /* Align buttons — smaller */
-    .btn-align {
-      padding: 5px 7px;
-      font-size: 13px;
-    }
-
-    /* =========================================================
-       WORKSPACE
-    ========================================================= */
-    .workspace {
-      flex: 1;
-      display: flex;
-      overflow: hidden;
-    }
-
-    /* =========================================================
-       ENTITY PALETTE
-    ========================================================= */
-    .palette {
-      width: var(--palette-w);
-      min-width: var(--palette-w);
-      background: var(--surface);
-      border-right: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      overflow-y: auto;
-      flex-shrink: 0;
-      transition: background 0.2s, border-color 0.2s;
-    }
-
-    .panel-heading {
-      padding: 13px 13px 9px;
-      font-size: 9.5px;
-      font-weight: 600;
-      letter-spacing: 2.5px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      border-bottom: 1px solid var(--border);
-      flex-shrink: 0;
-    }
-
-    .palette-list {
-      padding: 6px;
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-    }
-
-    .palette-item {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      padding: 9px 9px;
-      border-radius: var(--radius-sm);
-      border: 1px solid transparent;
-      cursor: pointer;
-      transition: background 0.1s, border-color 0.1s, transform 0.08s;
-      user-select: none;
-    }
-
-    .palette-item:hover {
-      background: var(--surface-2);
-      border-color: var(--border-mid);
-    }
-
-    .palette-item:active { transform: scale(0.97); }
-
-    .palette-icon {
-      font-size: 17px;
-      line-height: 1;
-      flex-shrink: 0;
-    }
-
-    .palette-name {
-      font-size: 12px;
-      font-weight: 400;
-      color: var(--text-dim);
-      transition: color 0.1s;
-    }
-
-    .palette-item:hover .palette-name { color: var(--text); }
-
-    /* =========================================================
-       CANVAS
-    ========================================================= */
-    .canvas-wrap {
-      flex: 1;
-      position: relative;
-      overflow: hidden;
-      background: var(--bg);
-      transition: background-color .2s;
-    }
-
-    .canvas-wrap.clean-bg {
-      background: #ffffff !important;
-    }
-
-    #cy {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-    }
-
-    /* ── Alignment guides overlay ── */
-    #align-guides {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      z-index: 99999;
-      overflow: hidden;
-    }
-
-    .guide-line {
-      position: absolute;
-      background: #4a9eff;
-      z-index: 99999;
-      pointer-events: none;
-    }
-
-    .guide-line.h {
-      left: 0; right: 0;
-      height: 1.5px;
-    }
-
-    .guide-line.v {
-      top: 0; bottom: 0;
-      width: 1.5px;
-    }
-
-    .mode-pill {
-      position: absolute;
-      top: 14px;
-      left: 50%;
-      transform: translateX(-50%);
-      padding: 5px 16px;
-      background: var(--surface);
-      border: 1px solid var(--border-hi);
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--text-dim);
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s ease;
-      white-space: nowrap;
-      z-index: 10;
-    }
-
-    .mode-pill.visible { opacity: 1; }
-
-    .canvas-hint {
-      position: absolute;
-      bottom: 14px;
-      left: 50%;
-      transform: translateX(-50%);
-      font-size: 11px;
-      color: var(--text-muted);
-      pointer-events: none;
-      white-space: nowrap;
-      letter-spacing: 0.3px;
-    }
-
-    /* =========================================================
-       INSPECTOR
-    ========================================================= */
-    .inspector {
-      width: var(--inspector-w);
-      min-width: var(--inspector-w);
-      max-width: var(--inspector-w);
-      background: var(--surface);
-      border-left: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      overflow-y: auto;
-      overflow-x: hidden;
-      flex-shrink: 0;
-      transition: background 0.2s, border-color 0.2s;
-    }
-
-    .insp-empty {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 10px;
-      padding: 28px 20px;
-      text-align: center;
-    }
-
-    .insp-empty-glyph {
-      font-size: 28px;
-      opacity: 0.1;
-      line-height: 1;
-    }
-
-    .insp-empty p {
-      font-size: 11.5px;
-      color: var(--text-muted);
-      line-height: 1.6;
-    }
-
-    .insp-section {
-      display: none;
-      flex-direction: column;
-      gap: 0;
-    }
-
-    .insp-section.visible { display: flex; }
-
-    .insp-entity-head {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 16px 14px 14px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .insp-entity-icon {
-      font-size: 28px;
-      line-height: 1;
-      flex-shrink: 0;
-      width: 44px;
-      height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: hidden;
-      border-radius: 6px;
-    }
-
-    .insp-entity-icon img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      border-radius: 4px;
-    }
-
-    .insp-entity-meta {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-      min-width: 0;
-    }
-
-    .insp-entity-kind {
-      font-size: 9px;
-      font-weight: 600;
-      letter-spacing: 2px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-    }
-
-    .insp-entity-title {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .insp-edge-head {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 14px;
-      border-bottom: 1px solid var(--border);
-    }
-
-    .insp-edge-glyph {
-      font-size: 18px;
-      color: var(--text-dim);
-      flex-shrink: 0;
-    }
-
-    .insp-edge-kind {
-      font-size: 9px;
-      font-weight: 600;
-      letter-spacing: 2px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-    }
-
-    .insp-body {
-      padding: 14px;
-      display: flex;
-      flex-direction: column;
-      gap: 12px;
-      min-width: 0;
-      overflow: hidden;
-    }
-
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
-
-    .form-label {
-      font-size: 9.5px;
-      font-weight: 600;
-      letter-spacing: 1.5px;
-      color: var(--text-muted);
-      text-transform: uppercase;
-    }
-
-    .form-input {
-      padding: 7px 9px;
-      background: var(--surface-2);
-      border: 1px solid var(--border-mid);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 12.5px;
-      outline: none;
-      transition: border-color 0.12s, background 0.2s, color 0.2s;
-    }
-
-    .form-input:focus { border-color: var(--border-hi); }
-
-    .form-select {
-      padding: 7px 28px 7px 9px;
-      background: var(--surface-2);
-      border: 1px solid var(--border-mid);
-      border-radius: var(--radius-sm);
-      color: var(--text);
-      font-family: 'Inter', system-ui, sans-serif;
-      font-size: 12.5px;
-      outline: none;
-      cursor: pointer;
-      appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23777' d='M5 6L0 0h10z'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 9px center;
-      transition: border-color 0.12s, background 0.2s, color 0.2s;
-    }
-
-    .form-select:focus { border-color: var(--border-hi); }
-    .form-select option { background: var(--surface-2); }
-
-    input[type="range"].form-input {
-      padding: 4px 0;
-      height: 24px;
-      cursor: pointer;
-      accent-color: var(--accent);
-    }
-
-    .toggle-row {
-      display: flex;
-      gap: 5px;
-    }
-
-    .toggle-row .btn {
-      flex: 1;
-      font-size: 12px;
-    }
-
-    .insp-footer {
-      padding: 12px 14px 14px;
-      border-top: 1px solid var(--border);
-      margin-top: auto;
-    }
-
-    .insp-footer .btn {
-      width: 100%;
-      padding: 7px;
-      font-size: 11.5px;
-    }
-
-    /* ── Node image upload area ── */
-    .upload-area {
-      border: 1.5px dashed var(--border-hi);
-      border-radius: var(--radius);
-      padding: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      align-items: stretch;
-      min-width: 0;
-      overflow: hidden;
-    }
-
-    .upload-area .btn {
-      font-size: 11px;
-      padding: 5px 8px;
-      justify-content: center;
-    }
-
-    .upload-preview {
-      width: 100%;
-      height: 52px;
-      object-fit: contain;
-      border-radius: var(--radius-sm);
-      display: none;
-      background: var(--surface-3);
-    }
-
-    .upload-preview.visible { display: block; }
-
-    .flaticon-row {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-      min-width: 0;
-    }
-
-    .flaticon-row .form-input {
-      width: 100%;
-      min-width: 0;
-      font-size: 11px;
-    }
-
-    .flaticon-row .btn {
-      width: 100%;
-      font-size: 11px;
-      padding: 5px 8px;
-    }
-
-    /* =========================================================
-       STATUS BAR
-    ========================================================= */
-    .statusbar {
-      height: var(--statusbar-h);
-      min-height: var(--statusbar-h);
-      background: var(--surface);
-      border-top: 1px solid var(--border);
-      display: flex;
-      align-items: center;
-      padding: 0 16px;
-      gap: 14px;
-      flex-shrink: 0;
-      transition: background 0.2s, border-color 0.2s;
-    }
-
-    .sb-stat {
-      font-size: 10.5px;
-      color: var(--text-muted);
-      letter-spacing: 0.2px;
-    }
-
-    .sb-sep {
-      width: 1px;
-      height: 12px;
-      background: var(--border-mid);
-    }
-
-    .sb-hints {
-      margin-left: auto;
-      font-size: 10px;
-      color: var(--text-muted);
-      letter-spacing: 0.2px;
-    }
-
-    /* =========================================================
-       TOAST
-    ========================================================= */
-    .toast {
-      position: fixed;
-      bottom: 44px;
-      left: 50%;
-      transform: translateX(-50%) translateY(10px);
-      background: var(--text);
-      color: var(--bg);
-      padding: 7px 18px;
-      border-radius: 20px;
-      font-size: 11.5px;
-      font-weight: 600;
-      opacity: 0;
-      transition: all 0.22s ease;
-      pointer-events: none;
-      z-index: 9999;
-      white-space: nowrap;
-    }
-
-    .toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-
-    /* =========================================================
-       SCROLLBAR
-    ========================================================= */
-    ::-webkit-scrollbar { width: 3px; height: 3px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 2px; }
-
-    /* =========================================================
-       MODAL
-    ========================================================= */
-    .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.6);
-      display: flex; align-items: center; justify-content: center;
-      z-index: 100000;
-    }
-    .modal-content {
-      background: var(--surface); border: 1px solid var(--border-hi);
-      padding: 24px; border-radius: var(--radius); max-width: 400px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-    }
-    .modal-content h2 { font-size: 16px; margin-bottom: 12px; }
-    .modal-content p { font-size: 13px; margin-bottom: 10px; color: var(--text-dim); }
-    .modal-content ul { font-size: 13px; color: var(--text); padding-left: 20px; margin-bottom: 15px; }
-    .modal-content li { margin-bottom: 6px; }
-
-    /* =========================================================
-       MISC
-    ========================================================= */
-    #file-input         { display: none; }
-    #node-img-input     { display: none; }
-
-    /* ── Toggle switch ── */
+      --bg:#f0f0f0; --surface:#fafafa; --surface-2:#f0f0f0; --surface-3:#e6e6e6;
+      --border:#e2e2e2; --border-mid:#cccccc; --border-hi:#999999;
+      --text:#111111; --text-dim:#555555; --text-muted:#aaaaaa;
+      --danger:#cc2222; --dot-color:#d0d0d0; --guide-color:rgba(74,130,255,.8);
+    }
+    html,body { height:100%; overflow:hidden; font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:var(--text); -webkit-font-smoothing:antialiased; transition:background .2s,color .2s; }
+    [hidden] { display:none !important; }
+    .app { display:flex; flex-direction:column; height:100vh; height:100dvh; width:100%; min-width:0; }
+    /* Wrap instead of clipping the header; every original action remains reachable. */
+    .toolbar { min-height:var(--toolbar-h); height:auto; max-height:46vh; max-height:46dvh; background:var(--surface); border-bottom:1px solid var(--border); display:flex; flex-wrap:wrap; align-items:center; padding:8px 12px; gap:5px; z-index:50; flex-shrink:0; overflow-x:hidden; overflow-y:auto; transition:background .2s,border-color .2s; }
+    .toolbar-logo { font-size:12.5px; font-weight:700; letter-spacing:4px; color:var(--text); margin-right:3px; user-select:none; flex-shrink:0; }
+    .tb-sep { width:1px; height:22px; background:var(--border-mid); margin:0 2px; flex-shrink:0; }
+    .tb-spacer { flex:1; }
+    .tb-group { display:flex; align-items:center; flex-wrap:wrap; gap:3px; min-width:0; max-width:100%; }
+    .btn { display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:5px 10px; min-height:27px; border-radius:var(--radius-sm); border:1px solid var(--border-mid); background:transparent; color:var(--text-dim); font-family:inherit; font-size:11.5px; font-weight:500; cursor:pointer; transition:background .12s,color .12s,border-color .12s; white-space:nowrap; user-select:none; letter-spacing:.2px; line-height:1.2; }
+    .btn:hover:not(:disabled) { background:var(--surface-2); color:var(--text); border-color:var(--border-hi); }
+    .btn:focus-visible,.palette-item:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+    .btn.active { background:var(--text); color:var(--bg); border-color:var(--text); font-weight:600; }
+    .btn.active:hover:not(:disabled) { opacity:.88; }
+    .btn.danger { color:var(--danger); border-color:rgba(224,85,85,.22); }
+    .btn.danger:hover:not(:disabled) { background:rgba(224,85,85,.07); border-color:var(--danger); }
+    :root.light .btn.danger { border-color:rgba(204,34,34,.22); }
+    :root.light .btn.danger:hover:not(:disabled) { background:rgba(204,34,34,.07); }
+    .btn:disabled { opacity:.26; cursor:not-allowed; pointer-events:none; }
+    #btn-lang { font-size:10.5px; font-weight:700; letter-spacing:.8px; padding:5px 9px; }
+    #btn-theme { font-size:11px; padding:5px 9px; }
+    .btn-align { padding:5px 7px; font-size:13px; }
+    /* The fixed dropdown is not clipped by the scrollable/wrapped toolbar. */
+    .dropdown-menu { position:fixed; width:210px; max-width:calc(100vw - 16px); padding:6px; display:flex; flex-direction:column; gap:3px; background:var(--surface); color:var(--text); border:1px solid var(--border-hi); border-radius:var(--radius); box-shadow:0 8px 26px rgba(0,0,0,.22); z-index:90000; overflow-y:auto; }
+    .dropdown-menu .btn { justify-content:flex-start; width:100%; padding:10px; border-color:transparent; font-size:12px; }
+    .dropdown-divider { height:1px; margin:3px 5px; background:var(--border); flex-shrink:0; }
+    .workspace { flex:1; display:flex; min-width:0; min-height:0; overflow:hidden; position:relative; }
+    .palette { width:var(--palette-w); min-width:var(--palette-w); background:var(--surface); border-right:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; flex-shrink:0; transition:background .2s,border-color .2s; }
+    .panel-heading { padding:13px 13px 9px; font-size:9.5px; font-weight:600; letter-spacing:2.5px; color:var(--text-muted); text-transform:uppercase; border-bottom:1px solid var(--border); flex-shrink:0; }
+    .palette-list { padding:6px; display:flex; flex-direction:column; gap:1px; }
+    .palette-item { display:flex; align-items:center; gap:9px; padding:9px; border-radius:var(--radius-sm); border:1px solid transparent; cursor:pointer; transition:background .1s,border-color .1s,transform .08s; user-select:none; background:transparent; text-align:left; font-family:inherit; width:100%; }
+    .palette-item:hover { background:var(--surface-2); border-color:var(--border-mid); }
+    .palette-item:active { transform:scale(.97); }
+    .palette-icon { font-size:17px; line-height:1; flex-shrink:0; color:var(--text-dim); }
+    .palette-name { font-size:12px; font-weight:400; color:var(--text-dim); transition:color .1s; overflow-wrap:anywhere; }
+    .palette-item:hover .palette-name { color:var(--text); }
+    .canvas-wrap { flex:1; min-width:0; min-height:0; position:relative; overflow:hidden; background:var(--bg); transition:background-color .2s; isolation:isolate; }
+    .canvas-wrap.clean-bg { background:#ffffff !important; }
+    #cy { position:absolute; inset:0; width:100%; height:100%; }
+    #align-guides { position:absolute; inset:0; pointer-events:none; z-index:20; overflow:hidden; }
+    .guide-line { position:absolute; background:#4a9eff; pointer-events:none; }
+    .guide-line.h { left:0; right:0; height:1.5px; }
+    .guide-line.v { top:0; bottom:0; width:1.5px; }
+    .mode-pill { position:absolute; top:14px; left:50%; transform:translateX(-50%); padding:5px 16px; background:var(--surface); border:1px solid var(--border-hi); border-radius:20px; font-size:11px; font-weight:500; color:var(--text-dim); pointer-events:none; opacity:0; transition:opacity .2s ease; max-width:calc(100% - 20px); text-align:center; z-index:10; }
+    .mode-pill.visible { opacity:1; }
+    .canvas-hint { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); font-size:11px; color:var(--text-muted); pointer-events:none; width:max-content; max-width:calc(100% - 28px); text-align:center; line-height:1.5; letter-spacing:.3px; }
+    .inspector { width:var(--inspector-w); min-width:var(--inspector-w); max-width:var(--inspector-w); min-height:0; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; flex-shrink:0; transition:background .2s,border-color .2s; }
+    .mobile-inspector-toggle,.inspector-close { display:none; }
+    .insp-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:28px 20px; text-align:center; }
+    .insp-empty-glyph { font-size:28px; opacity:.1; line-height:1; }
+    .insp-empty p { font-size:11.5px; color:var(--text-muted); line-height:1.6; }
+    .insp-section { display:none; flex-direction:column; gap:0; }
+    .insp-section.visible { display:flex; }
+    .insp-entity-head { display:flex; align-items:center; gap:12px; padding:16px 14px 14px; border-bottom:1px solid var(--border); }
+    .insp-entity-icon { font-size:28px; line-height:1; flex-shrink:0; width:44px; height:44px; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:6px; }
+    .insp-entity-icon img { width:100%; height:100%; object-fit:cover; border-radius:4px; }
+    .insp-entity-meta { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .insp-entity-kind { font-size:9px; font-weight:600; letter-spacing:2px; color:var(--text-muted); text-transform:uppercase; }
+    .insp-entity-title { font-size:13px; font-weight:600; color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .insp-edge-head { display:flex; align-items:center; gap:10px; padding:14px; border-bottom:1px solid var(--border); }
+    .insp-edge-glyph { font-size:18px; color:var(--text-dim); flex-shrink:0; }
+    .insp-edge-kind { font-size:9px; font-weight:600; letter-spacing:2px; color:var(--text-muted); text-transform:uppercase; }
+    .insp-body { padding:14px; display:flex; flex-direction:column; gap:12px; min-width:0; overflow:hidden; }
+    .form-group { display:flex; flex-direction:column; gap:5px; min-width:0; }
+    .form-label { font-size:9.5px; font-weight:600; letter-spacing:1.5px; color:var(--text-muted); text-transform:uppercase; }
+    .form-input { padding:7px 9px; background:var(--surface-2); border:1px solid var(--border-mid); border-radius:var(--radius-sm); color:var(--text); font-family:inherit; font-size:12.5px; outline:none; min-width:0; max-width:100%; transition:border-color .12s,background .2s,color .2s; }
+    .form-input:focus { border-color:var(--border-hi); }
+    .form-select { padding:7px 28px 7px 9px; background:var(--surface-2); border:1px solid var(--border-mid); border-radius:var(--radius-sm); color:var(--text); font-family:inherit; font-size:12.5px; outline:none; cursor:pointer; appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%23777' d='M5 6L0 0h10z'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 9px center; transition:border-color .12s,background .2s,color .2s; width:100%; }
+    .form-select:focus { border-color:var(--border-hi); }
+    .form-select option { background:var(--surface-2); }
+    input[type="range"].form-input { padding:4px 0; height:24px; cursor:pointer; accent-color:var(--accent); width:100%; }
+    input[type="color"].form-input { height:34px; padding:3px; cursor:pointer; width:100%; }
+    .control-row { display:flex; gap:8px; align-items:center; }
+    .control-row input { flex:1; }
+    output { font-size:11px; min-width:34px; text-align:right; color:var(--text-dim); }
+    .toggle-row { display:flex; gap:5px; }
+    .toggle-row .btn { flex:1; font-size:12px; }
+    .insp-footer { padding:12px 14px 14px; border-top:1px solid var(--border); margin-top:auto; }
+    .insp-footer .btn { width:100%; padding:7px; font-size:11.5px; }
+    .upload-area { border:1.5px dashed var(--border-hi); border-radius:var(--radius); padding:10px; display:flex; flex-direction:column; gap:6px; align-items:stretch; min-width:0; overflow:hidden; }
+    .upload-area .btn { font-size:11px; padding:5px 8px; justify-content:center; }
+    .upload-preview { width:100%; height:52px; object-fit:contain; border-radius:var(--radius-sm); display:none; background:var(--surface-3); }
+    .upload-preview.visible { display:block; }
+    .flaticon-row { display:flex; flex-direction:column; gap:5px; min-width:0; }
+    .flaticon-row .form-input { width:100%; min-width:0; font-size:11px; }
+    .flaticon-row .btn { width:100%; font-size:11px; padding:5px 8px; }
+    .statusbar { min-height:var(--statusbar-h); background:var(--surface); border-top:1px solid var(--border); display:flex; align-items:center; padding:4px 16px; gap:14px; flex-shrink:0; transition:background .2s,border-color .2s; }
+    .sb-stat { font-size:10.5px; color:var(--text-muted); letter-spacing:.2px; white-space:nowrap; }
+    .sb-sep { width:1px; height:12px; background:var(--border-mid); flex-shrink:0; }
+    .sb-hints { margin-left:auto; font-size:10px; color:var(--text-muted); letter-spacing:.2px; text-align:right; }
+    .toast { position:fixed; bottom:44px; left:50%; transform:translateX(-50%) translateY(10px); background:var(--text); color:var(--bg); padding:7px 18px; border-radius:20px; font-size:11.5px; font-weight:600; opacity:0; transition:all .22s ease; pointer-events:none; z-index:99999; max-width:calc(100vw - 24px); text-align:center; }
+    .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+    ::-webkit-scrollbar { width:5px; height:5px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:var(--border-mid); border-radius:2px; }
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:100000; padding:12px; }
+    .modal-content { background:var(--surface); border:1px solid var(--border-hi); padding:24px; border-radius:var(--radius); max-width:400px; width:100%; max-height:calc(100vh - 24px); max-height:calc(100dvh - 24px); overflow:auto; box-shadow:0 10px 30px rgba(0,0,0,.3); }
+    .modal-content h2 { font-size:16px; margin-bottom:12px; }
+    .modal-content p { font-size:13px; margin-bottom:10px; color:var(--text-dim); }
+    .modal-content ul { font-size:13px; color:var(--text); padding-left:20px; margin-bottom:15px; }
+    .modal-content li { margin-bottom:6px; }
+    #file-input,#node-img-input,#load-input { display:none; }
     .toggle-switch { position:relative; display:inline-block; width:34px; height:18px; flex-shrink:0; }
     .toggle-switch input { opacity:0; width:0; height:0; }
     .toggle-switch .slider { position:absolute; cursor:pointer; inset:0; background:var(--border-mid); border-radius:18px; transition:.2s; }
     .toggle-switch .slider::before { content:''; position:absolute; height:14px; width:14px; left:2px; bottom:2px; background:#fff; border-radius:50%; transition:.2s; }
-    .toggle-switch input:checked + .slider { background:var(--accent, #4a9eff); }
+    .toggle-switch input:checked + .slider { background:var(--accent); }
     .toggle-switch input:checked + .slider::before { transform:translateX(16px); }
-
+    .toggle-switch input:focus-visible + .slider { outline:2px solid var(--accent); outline-offset:3px; }
     .tb-toggle-label { font-size:10px; color:var(--text-dim); white-space:nowrap; user-select:none; }
-    .tb-toggle-group { display:flex; align-items:center; gap:5px; }
-
-    /* ── Autosave dropdown ── */
+    .tb-toggle-group { display:flex; align-items:center; gap:5px; min-height:27px; }
     .autosave-select { font-size:10px; padding:2px 4px; background:var(--surface-2); border:1px solid var(--border-mid); border-radius:3px; color:var(--text-dim); font-family:inherit; cursor:pointer; }
-
-    /* ── Wall color selector ── */
-    .wall-color-btn { width:18px; height:18px; border-radius:50%; border:2px solid var(--border-mid); cursor:pointer; transition:border-color .15s, transform .1s; flex-shrink:0; }
+    .wall-color-btn { width:18px; height:18px; border-radius:50%; border:2px solid var(--border-mid); cursor:pointer; transition:border-color .15s,transform .1s; flex-shrink:0; }
     .wall-color-btn:hover { transform:scale(1.15); }
     .wall-color-btn.active { border-color:var(--text); border-width:2.5px; }
-
-    /* ── Node Description Label ── */
-    .node-desc-label {
-      color: #999999; font-size: 10.5px; text-align: center;
-      margin-top: 42px; max-width: 130px; white-space: pre-wrap;
-      line-height: 1.3; font-family: 'Inter', system-ui, sans-serif;
-      pointer-events: none;
-      position: relative;
-      z-index: 99999;
+    .node-desc-label { color:#999999; font-size:10.5px; text-align:center; margin-top:42px; max-width:130px; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.3; font-family:inherit; pointer-events:none; position:relative; z-index:10; }
+    #description-layer { position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:5; }
+    .vis-timeline { border:none; font-family:inherit; }
+    .vis-item { border-radius:4px; background-color:var(--surface-3); border-color:var(--border-hi); color:var(--text); font-size:12px; box-shadow:none; }
+    .vis-item.vis-selected { border-color:var(--accent); background-color:var(--surface-2); }
+    .vis-time-axis .vis-text { color:var(--text-dim); }
+    .vis-time-axis .vis-grid.vis-minor { border-color:var(--border); }
+    .vis-time-axis .vis-grid.vis-major { border-color:var(--border-mid); }
+    .vis-panel.vis-bottom,.vis-panel.vis-center,.vis-panel.vis-left,.vis-panel.vis-right,.vis-panel.vis-top { border-color:var(--border); }
+    #vis-timeline-container { width:100%; height:400px; height:min(400px,60vh); border:1px solid var(--border); background:var(--surface); border-radius:6px; overflow:hidden; }
+    #startup-error { position:fixed; inset:auto 12px 38px; z-index:100001; background:var(--surface); color:var(--danger); padding:16px; border:1px solid var(--danger); border-radius:6px; font:13px/1.5 system-ui,sans-serif; }
+    @media (max-width:1200px) { :root { --palette-w:155px; --inspector-w:260px; } .tb-spacer { display:none; } .toolbar-logo { letter-spacing:2px; } .sb-hints { display:none; } }
+    @media (max-width:900px) {
+      :root { --palette-w:54px; --inspector-w:280px; }
+      .toolbar { padding:6px 8px; }
+      .toolbar > .tb-sep { display:none; }
+      .btn { min-height:30px; }
+      .palette .panel-heading,.palette-name { display:none; }
+      .palette-list { padding:4px; }
+      .palette-item { justify-content:center; padding:10px 4px; min-height:42px; }
+      .palette-icon { font-size:20px; }
+      .inspector { position:absolute; top:0; bottom:0; right:0; width:min(280px,calc(100% - 54px)); min-width:0; max-width:calc(100% - 54px); z-index:30; box-shadow:-6px 0 20px rgba(0,0,0,.12); visibility:hidden; transform:translateX(100%); }
+      .workspace.inspector-open .inspector { visibility:visible; transform:translateX(0); }
+      .mobile-inspector-toggle { display:inline-flex; }
+      .inspector-close { display:flex; align-self:flex-end; margin:8px 10px 0; flex-shrink:0; }
+      .statusbar { padding:4px 10px; gap:10px; }
     }
-
-    /* ── Timeline modal overrides ── */
-    .vis-timeline { border: none; font-family: 'Inter', system-ui, sans-serif; }
-    .vis-item { border-radius: 4px; background-color: var(--surface-3); border-color: var(--border-hi); color: var(--text); font-size: 12px; box-shadow: none; }
-    .vis-item.vis-selected { border-color: var(--accent); background-color: var(--surface-2); }
-    .vis-time-axis .vis-text { color: var(--text-dim); }
-    .vis-time-axis .vis-grid.vis-minor { border-color: var(--border); }
-    .vis-time-axis .vis-grid.vis-major { border-color: var(--border-mid); }
-    .vis-panel.vis-bottom, .vis-panel.vis-center, .vis-panel.vis-left, .vis-panel.vis-right, .vis-panel.vis-top { border-color: var(--border); }
+    @media (max-width:480px) { .toolbar-logo { width:100%; font-size:11px; } .toolbar { gap:4px; } .toolbar .btn { font-size:11px; padding:5px 7px; } .canvas-hint { font-size:10px; } }
   </style>
 </head>
 <body>
 <div class="app">
-
-  <!-- ═══════════════════════════════════════════════════════
-       TOOLBAR
-  ═══════════════════════════════════════════════════════ -->
-  <header class="toolbar">
+  <header class="toolbar" aria-label="SCHEMA toolbar">
     <div class="toolbar-logo">VICTOR SCHEMA</div>
     <div class="tb-sep"></div>
-
-    <!-- Interaction modes -->
     <div class="tb-group">
-      <button class="btn active" id="btn-select" title="Select & Move  [S]">✦ <span data-i18n="select">Select</span></button>
-      <button class="btn"        id="btn-line"   title="Draw plain line  [L]">— <span data-i18n="line">Line</span></button>
-      <button class="btn"        id="btn-arrow"  title="Draw arrow  [A]">→ <span data-i18n="arrow">Arrow</span></button>
+      <button class="btn active" id="btn-select" title="Select &amp; Move [S]">&#10022; <span data-i18n="select">Select</span></button>
+      <button class="btn" id="btn-line" title="Draw plain line [L]">&mdash; <span data-i18n="line">Line</span></button>
+      <button class="btn" id="btn-arrow" title="Draw arrow [A]">&rarr; <span data-i18n="arrow">Arrow</span></button>
+      <button class="btn" id="btn-text" title="Add text [T]">T <span data-i18n="addText">Text</span></button>
     </div>
-
     <div class="tb-sep"></div>
-
-    <!-- Edit -->
     <div class="tb-group">
-      <button class="btn"        id="btn-undo"   title="Undo  [Ctrl+Z]"      disabled>↩ <span data-i18n="undo">Undo</span></button>
-      <button class="btn"        id="btn-redo"   title="Redo  [Ctrl+Y]"      disabled>↪ <span data-i18n="redo">Redo</span></button>
-      <button class="btn danger" id="btn-delete" title="Delete selected  [Del]" disabled>✕ <span data-i18n="delete">Delete</span></button>
+      <button class="btn" id="btn-undo" title="Undo [Ctrl+Z]" disabled>&#8617; <span data-i18n="undo">Undo</span></button>
+      <button class="btn" id="btn-redo" title="Redo [Ctrl+Y]" disabled>&#8618; <span data-i18n="redo">Redo</span></button>
+      <button class="btn danger" id="btn-delete" title="Delete selected [Del]" disabled>&#10005; <span data-i18n="delete">Delete</span></button>
     </div>
-
     <div class="tb-sep"></div>
-
-    <!-- Alignment -->
     <div class="tb-group">
-      <button class="btn btn-align" id="btn-align-h"     title="Align selected entities horizontally (same Y)">⬌</button>
-      <button class="btn btn-align" id="btn-align-v"     title="Align selected entities vertically (same X)">⬍</button>
-      <button class="btn btn-align" id="btn-distribute-h" title="Distribute horizontally (equal X spacing)">⇿</button>
-      <button class="btn btn-align" id="btn-distribute-v" title="Distribute vertically (equal Y spacing)">↕</button>
-      <button class="btn"           id="btn-guides"       title="Toggle alignment guides while dragging">⊹ <span data-i18n="guides">Guides</span></button>
+      <button class="btn btn-align" id="btn-align-h" title="Align selected entities horizontally (same Y)">&#11020;</button>
+      <button class="btn btn-align" id="btn-align-v" title="Align selected entities vertically (same X)">&#11021;</button>
+      <button class="btn btn-align" id="btn-distribute-h" title="Distribute horizontally (equal X spacing)">&#8703;</button>
+      <button class="btn btn-align" id="btn-distribute-v" title="Distribute vertically (equal Y spacing)">&#8597;</button>
+      <button class="btn" id="btn-guides" title="Toggle alignment guides while dragging">&#8889; <span data-i18n="guides">Guides</span></button>
     </div>
-
     <div class="tb-spacer"></div>
-
-    <!-- View -->
-    <div class="tb-group">
-      <button class="btn" id="btn-fit" title="Fit graph to screen  [F]">⊞ <span data-i18n="fit">Fit</span></button>
-    </div>
-
+    <button class="btn" id="btn-fit" title="Fit graph to screen [F]">&#8862; <span data-i18n="fit">Fit</span></button>
     <div class="tb-sep"></div>
-
-    <!-- Export -->
-    <div class="tb-group">
-      <button class="btn" id="btn-png" title="Export as PNG image">↓ PNG</button>
-      <button class="btn" id="btn-pdf" title="Export as PDF">↓ PDF</button>
-      <button class="btn" id="btn-save" title="Save JSON">💾 <span data-i18n="save">Save</span></button>
-    </div>
-
+    <button class="btn" id="btn-file-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="file-menu">Menu <span aria-hidden="true">&#9662;</span></button>
+    <input type="file" id="load-input" accept=".json,application/json">
     <div class="tb-sep"></div>
-
-    <!-- Load -->
     <div class="tb-group">
-      <button class="btn" id="btn-load" title="Load JSON">📂 <span data-i18n="load">Load</span></button>
-      <input type="file" id="load-input" accept=".json" style="display:none">
+      <button class="btn" id="btn-lang" title="Switch language / Trocar idioma">PT-BR</button>
+      <button class="btn" id="btn-theme" title="Toggle color theme / Alternar tema">&#127769; <span id="btn-theme-label">Dark</span></button>
     </div>
-
     <div class="tb-sep"></div>
-
-    <!-- Flaticon -->
-    <div class="tb-group">
-      <button class="btn" id="btn-flaticon-menu" title="Flaticon (Free Icons)" style="color:#1dc1a9">💎 Flaticon</button>
-    </div>
-
-    <div class="tb-sep"></div>
-
-    <!-- Language & Theme -->
-    <div class="tb-group">
-      <button class="btn" id="btn-lang"  title="Switch language / Trocar idioma">PT-BR</button>
-      <button class="btn" id="btn-theme" title="Toggle color theme / Alternar tema">☀ <span id="btn-theme-label">Light</span></button>
-    </div>
-
-    <div class="tb-sep"></div>
-
-    <!-- Clean Background Toggle -->
     <div class="tb-toggle-group">
-      <label class="toggle-switch" title="100% white background">
-        <input type="checkbox" id="toggle-clean-bg">
-        <span class="slider"></span>
-      </label>
+      <label class="toggle-switch" title="100% white background"><input type="checkbox" id="toggle-clean-bg" aria-labelledby="lbl-clean-bg"><span class="slider"></span></label>
       <span class="tb-toggle-label" id="lbl-clean-bg">Clean BG</span>
     </div>
-
     <div class="tb-sep"></div>
-
-    <!-- Autosave Toggle -->
     <div class="tb-toggle-group">
-      <label class="toggle-switch" title="Auto-save">
-        <input type="checkbox" id="toggle-autosave">
-        <span class="slider"></span>
-      </label>
-      <select class="autosave-select" id="autosave-interval" title="Auto-save interval">
-        <option value="5">5min</option>
-        <option value="10" selected>10min</option>
-        <option value="30">30min</option>
-      </select>
+      <label class="toggle-switch" title="Auto-save"><input type="checkbox" id="toggle-autosave" aria-label="Auto-save"><span class="slider"></span></label>
+      <select class="autosave-select" id="autosave-interval" title="Auto-save interval" aria-label="Auto-save interval"><option value="5">5min</option><option value="10" selected>10min</option><option value="30">30min</option></select>
     </div>
-
     <div class="tb-sep"></div>
-
-    <!-- Timeline -->
-    <div class="tb-group">
-      <button class="btn" id="btn-timeline" title="Generate event timeline">📋 <span data-i18n="timeline">Timeline</span></button>
-    </div>
+    <button class="btn" id="btn-timeline" title="Generate event timeline">&#128203; <span data-i18n="timeline">Timeline</span></button>
+    <button class="btn mobile-inspector-toggle" id="btn-inspector" aria-controls="inspector" aria-expanded="false"><span data-i18n="properties">Properties</span></button>
   </header>
-
-  <!-- ═══════════════════════════════════════════════════════
-       WORKSPACE
-  ═══════════════════════════════════════════════════════ -->
-  <div class="workspace">
-
-    <!-- ENTITY PALETTE -->
-    <aside class="palette">
+  <div class="workspace" id="workspace">
+    <aside class="palette" aria-labelledby="palette-heading">
       <div class="panel-heading" id="palette-heading">Entities</div>
-      <div class="palette-list" id="palette-list">
-        <!-- Populated by JS -->
-      </div>
+      <div class="palette-list" id="palette-list"></div>
     </aside>
-
-    <!-- CANVAS -->
     <main class="canvas-wrap" id="canvas-wrap">
-      <div id="cy"></div>
-      <!-- Alignment guides overlay -->
+      <div id="cy" aria-label="Schema canvas"></div>
       <div id="align-guides"></div>
       <div class="mode-pill" id="mode-pill"></div>
-      <div class="canvas-hint" id="canvas-hint">Click an entity to add it &nbsp;·&nbsp; Double-click a node to rename</div>
+      <div class="canvas-hint" id="canvas-hint">Click an entity to add it &nbsp;&middot;&nbsp; Double-click a node to rename</div>
     </main>
-
-    <!-- INSPECTOR -->
-    <aside class="inspector">
-
-      <!-- Empty state -->
-      <div class="insp-empty" id="insp-empty">
-        <div class="insp-empty-glyph">◈</div>
-        <p id="insp-empty-text">Select an entity or connection to view its properties</p>
-      </div>
-
-      <!-- Node inspector -->
+    <aside class="inspector" id="inspector" aria-label="Properties">
+      <button class="btn inspector-close" id="btn-close-inspector">&#10005; <span data-i18n="close">Close</span></button>
+      <div class="insp-empty" id="insp-empty"><div class="insp-empty-glyph">&#9672;</div><p id="insp-empty-text">Select an entity or connection to view its properties</p></div>
       <div class="insp-section" id="insp-node">
-        <div class="insp-entity-head">
-          <div class="insp-entity-icon" id="ii-icon">👤</div>
-          <div class="insp-entity-meta">
-            <div class="insp-entity-kind" id="ii-kind">PERSON</div>
-            <div class="insp-entity-title" id="ii-title">—</div>
-          </div>
-        </div>
+        <div class="insp-entity-head"><div class="insp-entity-icon" id="ii-icon">&#128100;</div><div class="insp-entity-meta"><div class="insp-entity-kind" id="ii-kind">PERSON</div><div class="insp-entity-title" id="ii-title">&mdash;</div></div></div>
         <div class="insp-body">
-
-          <!-- Name -->
-          <div class="form-group">
-            <div class="form-label" id="lbl-name">Name</div>
-            <textarea class="form-input" id="ii-name" placeholder="…" rows="1" style="resize:vertical"></textarea>
+          <div class="form-group"><label class="form-label" id="lbl-name" for="ii-name">Name</label><textarea class="form-input" id="ii-name" placeholder="&#8230;" rows="1" style="resize:vertical"></textarea></div>
+          <div class="form-group"><label class="form-label" id="lbl-desc" for="ii-desc">Description (Sub-title)</label><textarea class="form-input" id="ii-desc" placeholder="Light gray subtitle..." rows="2" style="resize:vertical;font-size:11px"></textarea></div>
+          <div style="display:flex;gap:10px;">
+            <div class="form-group" style="flex:1"><label class="form-label" id="lbl-start-date" for="ii-start-date">Start Date</label><input type="date" class="form-input" id="ii-start-date" style="padding:5px;font-size:11px"></div>
+            <div class="form-group" style="flex:1"><label class="form-label" id="lbl-end-date" for="ii-end-date">End Date</label><input type="date" class="form-input" id="ii-end-date" style="padding:5px;font-size:11px"></div>
           </div>
-
-          <!-- Description -->
-          <div class="form-group">
-            <div class="form-label" id="lbl-desc">Description (Sub-title)</div>
-            <textarea class="form-input" id="ii-desc" placeholder="Light gray subtitle..." rows="2" style="resize:vertical; font-size:11px"></textarea>
-          </div>
-
-          <!-- Dates for Timeline -->
-          <div style="display:flex; gap:10px;">
-            <div class="form-group" style="flex:1">
-              <div class="form-label" id="lbl-start-date">Start Date</div>
-              <input type="date" class="form-input" id="ii-start-date" style="padding:5px; font-size:11px">
-            </div>
-            <div class="form-group" style="flex:1">
-              <div class="form-label" id="lbl-end-date">End Date</div>
-              <input type="date" class="form-input" id="ii-end-date" style="padding:5px; font-size:11px">
-            </div>
-          </div>
-
-          <!-- Type -->
-          <div class="form-group">
-            <div class="form-label" id="lbl-type">Type</div>
-            <select class="form-select" id="ii-type">
-              <!-- Populated by JS -->
-            </select>
-          </div>
-
-          <!-- Size -->
-          <div class="form-group">
-            <div class="form-label" id="lbl-size">Size</div>
-            <input type="range" id="ii-size" class="form-input" min="40" max="180" step="2">
-          </div>
-
-          <!-- Text Size -->
-          <div class="form-group">
-            <div class="form-label" id="lbl-font-size">Text Size</div>
-            <input type="range" id="ii-font-size" class="form-input" min="8" max="48" step="1">
-          </div>
-
-          <!-- Desc Distance -->
-          <div class="form-group">
-            <div class="form-label" id="lbl-desc-dist">Desc Distance</div>
-            <input type="range" id="ii-desc-dist" class="form-input" min="0" max="150" step="1">
-          </div>
-
-          <!-- Custom image / icon -->
-          <div class="form-group">
+          <div class="form-group"><label class="form-label" id="lbl-type" for="ii-type">Type</label><select class="form-select" id="ii-type"></select></div>
+          <div class="form-group" id="node-size-group"><label class="form-label" id="lbl-size" for="ii-size">Size</label><input type="range" id="ii-size" class="form-input" min="40" max="180" step="2"></div>
+          <div class="form-group"><label class="form-label" id="lbl-font-size" for="ii-font-size">Text Size</label><div class="control-row"><input type="range" id="ii-font-size" class="form-input" min="8" max="48" step="1"><output id="ii-font-size-value" for="ii-font-size">11px</output></div></div>
+          <div class="form-group" id="text-width-group" hidden><label class="form-label" for="ii-text-width" data-i18n="textWidth">Text width</label><div class="control-row"><input type="range" id="ii-text-width" class="form-input" min="80" max="1000" step="10" value="280"><output id="ii-text-width-value" for="ii-text-width">280px</output></div></div>
+          <div class="form-group" id="text-color-group" hidden><label class="form-label" for="ii-text-color" data-i18n="textColor">Text color</label><div class="control-row"><input type="color" id="ii-text-color" class="form-input" value="#333333"><button class="btn" id="btn-reset-text-color" data-i18n="automaticColor">Auto</button></div></div>
+          <div class="form-group"><label class="form-label" id="lbl-desc-dist" for="ii-desc-dist">Desc Distance</label><input type="range" id="ii-desc-dist" class="form-input" min="0" max="150" step="1"></div>
+          <div class="form-group" id="custom-icon-group">
             <div class="form-label" id="lbl-custom-icon">Custom Icon / Image</div>
             <div class="upload-area">
               <img id="upload-preview" class="upload-preview" alt="preview">
-
-              <!-- Upload image -->
-              <button class="btn" id="btn-upload-img" title="Upload an image file to use as icon">🖼 <span data-i18n="uploadImage">Upload Image</span></button>
-              <input type="file" id="node-img-input" accept="image/*">
-
-              <!-- Custom text icon -->
-              <div class="form-group" style="margin-top:2px;">
-                <div class="form-label" id="lbl-text-icon" style="font-size:9px">Text / Emoji as Icon</div>
-                <div style="display:flex;flex-direction:column;gap:5px">
-                  <input type="text" class="form-input" id="ii-text-icon" placeholder="e.g. 🔥 or AB" style="width:100%;font-size:13px">
-                  <button class="btn" id="btn-apply-text-icon" style="width:100%;font-size:11px;padding:5px 8px">Apply Text</button>
-                </div>
-              </div>
-
-              <!-- Flaticon URL -->
-              <div class="form-group" style="margin-top:2px;">
-                <div class="form-label" id="lbl-flaticon" style="font-size:9px">Flaticon URL (página ou CDN)</div>
-                <div class="flaticon-row">
-                  <input type="text" class="form-input" id="ii-flaticon-url" placeholder="flaticon.com/free-icon/… ou cdn-icons-png.flaticon.com/…">
-                  <button class="btn" id="btn-apply-flaticon">Apply</button>
-                </div>
-              </div>
-
-              <!-- Reset to default -->
-              <button class="btn" id="btn-reset-icon" style="font-size:10.5px;opacity:0.7">↺ <span data-i18n="resetIcon">Reset Icon</span></button>
+              <button class="btn" id="btn-upload-img" title="Upload an image file to use as icon">&#128444; <span data-i18n="uploadImage">Upload Image</span></button><input type="file" id="node-img-input" accept="image/*">
+              <div class="form-group" style="margin-top:2px;"><label class="form-label" id="lbl-text-icon" for="ii-text-icon" style="font-size:9px">Text / Emoji as Icon</label><div style="display:flex;flex-direction:column;gap:5px"><input type="text" class="form-input" id="ii-text-icon" placeholder="e.g. &#128293; or AB" style="width:100%;font-size:13px"><button class="btn" id="btn-apply-text-icon" style="width:100%;font-size:11px;padding:5px 8px">Apply Text</button></div></div>
+              <div class="form-group" style="margin-top:2px;"><label class="form-label" id="lbl-flaticon" for="ii-flaticon-url" style="font-size:9px">Flaticon URL (p&aacute;gina ou CDN)</label><div class="flaticon-row"><input type="text" class="form-input" id="ii-flaticon-url" placeholder="flaticon.com/free-icon/&#8230; ou cdn-icons-png.flaticon.com/&#8230;"><button class="btn" id="btn-apply-flaticon">Apply</button></div></div>
+              <button class="btn" id="btn-reset-icon" style="font-size:10.5px;opacity:.7">&#8634; <span data-i18n="resetIcon">Reset Icon</span></button>
             </div>
           </div>
-
-          <!-- Wall (Border) Color -->
-          <div class="form-group" id="wall-color-group">
-            <div class="form-label" id="lbl-wall-color">Wall Color</div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
-              <div class="wall-color-btn active" data-wall-color="#000000" style="background:#000000" title="Black"></div>
-              <div class="wall-color-btn" data-wall-color="#e05555" style="background:#e05555" title="Red"></div>
-              <div class="wall-color-btn" data-wall-color="#30a060" style="background:#30a060" title="Green"></div>
-              <div class="wall-color-btn" data-wall-color="#e8c840" style="background:#e8c840" title="Yellow"></div>
-              <div class="wall-color-btn" data-wall-color="#ffffff" style="background:#ffffff" title="White"></div>
-            </div>
-          </div>
-
+          <div class="form-group" id="wall-color-group"><div class="form-label" id="lbl-wall-color">Wall Color</div><div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <button class="wall-color-btn active" data-wall-color="#000000" style="background:#000000" title="Black" aria-label="Black"></button>
+            <button class="wall-color-btn" data-wall-color="#e05555" style="background:#e05555" title="Red" aria-label="Red"></button>
+            <button class="wall-color-btn" data-wall-color="#30a060" style="background:#30a060" title="Green" aria-label="Green"></button>
+            <button class="wall-color-btn" data-wall-color="#e8c840" style="background:#e8c840" title="Yellow" aria-label="Yellow"></button>
+            <button class="wall-color-btn" data-wall-color="#ffffff" style="background:#ffffff" title="White" aria-label="White"></button>
+          </div></div>
         </div>
-        <div class="insp-footer">
-          <button class="btn danger" id="btn-del-node">✕ <span data-i18n="removeEntity">Remove Entity</span></button>
-        </div>
+        <div class="insp-footer"><button class="btn danger" id="btn-del-node">&#10005; <span data-i18n="removeEntity">Remove Entity</span></button></div>
       </div>
-
-      <!-- Edge inspector -->
       <div class="insp-section" id="insp-edge">
-        <div class="insp-edge-head">
-          <div class="insp-edge-glyph" id="ie-glyph">—</div>
-          <div class="insp-edge-kind" id="ie-kind">LINE CONNECTION</div>
-        </div>
+        <div class="insp-edge-head"><div class="insp-edge-glyph" id="ie-glyph">&mdash;</div><div class="insp-edge-kind" id="ie-kind">LINE CONNECTION</div></div>
         <div class="insp-body">
-          <div class="form-group">
-            <div class="form-label" id="lbl-edge-label">Label <span id="lbl-edge-optional" style="opacity:.5;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
-            <textarea class="form-input" id="ie-label" placeholder="e.g. works_at" rows="2" style="resize:vertical"></textarea>
-          </div>
-          <div class="form-group">
-            <div class="form-label" id="lbl-conntype">Connection type</div>
-            <div class="toggle-row">
-              <button class="btn active" id="ie-line-btn">— <span data-i18n="lineLbl">Line</span></button>
-              <button class="btn"        id="ie-arrow-btn">→ <span data-i18n="arrowLbl">Arrow</span></button>
-            </div>
-          </div>
-          <div class="form-group">
-            <div class="form-label">Line Style</div>
-            <div class="toggle-row">
-              <button class="btn active" id="ie-solid-btn">Solid</button>
-              <button class="btn"        id="ie-dashed-btn">Dashed</button>
-            </div>
-          </div>
-          <div class="form-group">
-            <div class="form-label">Curve</div>
-            <div class="toggle-row">
-              <button class="btn active" id="ie-straight-btn">Straight</button>
-              <button class="btn"        id="ie-curved-btn">Curved</button>
-            </div>
-          </div>
+          <div class="form-group"><label class="form-label" id="lbl-edge-label" for="ie-label">Label <span id="lbl-edge-optional" style="opacity:.5;font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label><textarea class="form-input" id="ie-label" placeholder="e.g. works_at" rows="2" style="resize:vertical"></textarea></div>
+          <div class="form-group"><label class="form-label" for="ie-color" data-i18n="connectionColor">Line / arrow color</label><div class="control-row"><input class="form-input" type="color" id="ie-color" value="#bbbbbb"><button class="btn" id="btn-reset-edge-color" data-i18n="automaticColor">Auto</button></div></div>
+          <div class="form-group"><label class="form-label" for="ie-text-color" data-i18n="textColor">Text color</label><div class="control-row"><input class="form-input" type="color" id="ie-text-color" value="#888888"><button class="btn" id="btn-reset-edge-text-color" data-i18n="automaticColor">Auto</button></div></div>
+          <div class="form-group"><label class="form-label" for="ie-font-size" data-i18n="lblFontSize">Text Size</label><div class="control-row"><input type="range" id="ie-font-size" class="form-input" min="8" max="72" step="1" value="10"><output id="ie-font-size-value" for="ie-font-size">10px</output></div></div>
+          <div class="form-group"><label class="form-label" for="ie-width" data-i18n="lineWidth">Line thickness</label><div class="control-row"><input type="range" id="ie-width" class="form-input" min="1" max="12" step="0.5" value="1.5"><output id="ie-width-value" for="ie-width">1.5px</output></div></div>
+          <div class="form-group"><div class="form-label" id="lbl-conntype">Connection type</div><div class="toggle-row"><button class="btn active" id="ie-line-btn">&mdash; <span data-i18n="lineLbl">Line</span></button><button class="btn" id="ie-arrow-btn">&rarr; <span data-i18n="arrowLbl">Arrow</span></button></div></div>
+          <div class="form-group"><div class="form-label" data-i18n="lineStyle">Line Style</div><div class="toggle-row"><button class="btn active" id="ie-solid-btn" data-i18n="solid">Solid</button><button class="btn" id="ie-dashed-btn" data-i18n="dashed">Dashed</button></div></div>
+          <div class="form-group"><div class="form-label" data-i18n="curve">Curve</div><div class="toggle-row"><button class="btn active" id="ie-straight-btn" data-i18n="straight">Straight</button><button class="btn" id="ie-curved-btn" data-i18n="curved">Curved</button></div></div>
         </div>
-        <div class="insp-footer">
-          <button class="btn danger" id="btn-del-edge">✕ <span data-i18n="removeConn">Remove Connection</span></button>
-        </div>
+        <div class="insp-footer"><button class="btn danger" id="btn-del-edge">&#10005; <span data-i18n="removeConn">Remove Connection</span></button></div>
       </div>
-
     </aside>
   </div>
-
-  <!-- ═══════════════════════════════════════════════════════
-       STATUS BAR
-  ═══════════════════════════════════════════════════════ -->
-  <footer class="statusbar">
-    <span class="sb-stat" id="sb-nodes">0 entities</span>
-    <div class="sb-sep"></div>
-    <span class="sb-stat" id="sb-edges">0 connections</span>
-    <span class="sb-hints" id="sb-hints">S — select &nbsp;·&nbsp; L — line &nbsp;·&nbsp; A — arrow &nbsp;·&nbsp; F — fit &nbsp;·&nbsp; Del — delete &nbsp;·&nbsp; Ctrl+Z/Y — undo/redo</span>
-  </footer>
-
-</div><!-- /.app -->
-
-<!-- STARTUP MODAL -->
-<div id="startup-modal" class="modal-overlay">
-  <div class="modal-content">
-    <h2>Bem-vindo ao SCHEMA</h2>
-    <p>Funcionalidades Básicas:</p>
-    <ul>
-      <li><strong>Adicionar:</strong> Clique na entidade na paleta à esquerda.</li>
-      <li><strong>Conectar:</strong> Escolha "Linha" ou "Seta" no topo e clique em duas entidades.</li>
-      <li><strong>Editar:</strong> Dê duplo clique na entidade ou conexão para editar seus detalhes.</li>
-      <li><strong>Salvar/Abrir:</strong> Salve o arquivo no botão "Save" e abra-o posteriormente.</li>
-    </ul>
-    <p style="margin-top: 15px; font-size: 11px; color: var(--text-muted); text-align: right;">
-      Autor: <strong>winzip144</strong>
-    </p>
-    <p style="margin-top: 15px; font-weight: 500; text-align: center;">Vai doar um café? ☕</p>
-    <button class="btn active" id="btn-close-modal" style="margin-top: 15px; width: 100%; justify-content: center;">Começar</button>
-  </div>
+  <footer class="statusbar"><span class="sb-stat" id="sb-nodes">0 entities</span><div class="sb-sep"></div><span class="sb-stat" id="sb-edges">0 connections</span><span class="sb-hints" id="sb-hints">S &mdash; select &middot; L &mdash; line &middot; A &mdash; arrow &middot; T &mdash; text &middot; F &mdash; fit &middot; Del &mdash; delete &middot; Ctrl+Z/Y &mdash; undo/redo</span></footer>
 </div>
-
-<!-- TIMELINE MODAL -->
-<div id="timeline-modal" class="modal-overlay" style="display:none">
-  <div class="modal-content" style="max-width:900px; width:95vw; padding:20px;">
-    <h2 id="timeline-title" style="margin-bottom:15px">📋 Timeline</h2>
-    <div id="vis-timeline-container" style="width: 100%; height: 400px; border: 1px solid var(--border); background: var(--surface); border-radius:6px; overflow:hidden;"></div>
-    <button class="btn active" id="btn-close-timeline" style="margin-top:15px;width:100%;justify-content:center">Close</button>
-  </div>
+<!-- Exactly the five requested actions have moved into this dropdown. -->
+<div id="file-menu" class="dropdown-menu" role="menu" aria-labelledby="btn-file-menu" hidden>
+  <button class="btn" id="btn-png" role="menuitem">&#8595; <span data-i18n="downloadPNG">Download PNG</span></button>
+  <button class="btn" id="btn-pdf" role="menuitem">&#8595; <span data-i18n="downloadPDF">Download PDF</span></button>
+  <div class="dropdown-divider" role="separator"></div>
+  <button class="btn" id="btn-save" role="menuitem" title="Save JSON">&#128190; <span data-i18n="save">Save</span></button>
+  <button class="btn" id="btn-load" role="menuitem" title="Load JSON">&#128194; <span data-i18n="load">Load</span></button>
+  <div class="dropdown-divider" role="separator"></div>
+  <button class="btn" id="btn-flaticon-menu" role="menuitem" title="Flaticon (Free Icons)" style="color:#1dc1a9">&#128142; Flaticon</button>
 </div>
-
+<div id="startup-modal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="startup-title"><div class="modal-content">
+  <h2 id="startup-title">Bem-vindo ao SCHEMA</h2><p>Funcionalidades B&aacute;sicas:</p>
+  <ul>
+    <li><strong>Adicionar:</strong> Clique na entidade na paleta &agrave; esquerda.</li>
+    <li><strong>Texto livre:</strong> Clique em "Text/Texto" ou pressione T para inserir apenas texto.</li>
+    <li><strong>Conectar:</strong> Escolha "Linha" ou "Seta" no topo e clique em duas entidades.</li>
+    <li><strong>Editar:</strong> Clique na entidade ou conex&atilde;o para editar suas propriedades. Duplo clique abre o campo de texto.</li>
+    <li><strong>Salvar/Abrir:</strong> Use Save/Load no bot&atilde;o Menu. PNG, PDF e Flaticon tamb&eacute;m est&atilde;o nesse menu.</li>
+  </ul>
+  <p style="margin-top:15px;font-size:11px;color:var(--text-muted);text-align:right;">Autor: <strong>winzip144</strong></p>
+  <p style="margin-top:15px;font-weight:500;text-align:center;">Vai doar um caf&eacute;? &#9749;</p>
+  <button class="btn active" id="btn-close-modal" style="margin-top:15px;width:100%;justify-content:center;">Come&ccedil;ar</button>
+</div></div>
+<div id="timeline-modal" class="modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="timeline-title"><div class="modal-content" style="max-width:900px;width:95vw;padding:20px;">
+  <h2 id="timeline-title" style="margin-bottom:15px">&#128203; Timeline</h2><div id="vis-timeline-container"></div>
+  <button class="btn active" id="btn-close-timeline" style="margin-top:15px;width:100%;justify-content:center" data-i18n="close">Close</button>
+</div></div>
+<div id="startup-error" role="alert" hidden></div>
 <script src="app.js"></script>
 </body>
 </html>
