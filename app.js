@@ -52,6 +52,10 @@ let currentLang = 'en';
 let isLight = true;
 let guidesEnabled = true;
 let cleanBgEnabled = false;
+let presentationEnabled = false;
+let presentationPointer = null;
+let presentationKeyboard = false;
+const presentationPanels = [];
 let autosaveEnabled = false;
 let autosaveTimer = null;
 let autosaveMinutes = 10;
@@ -88,18 +92,66 @@ function canonicalType(id) {
 function getType(id) {
   return ENTITY_TYPES.find(type => type.id === canonicalType(id)) || ENTITY_TYPES[0];
 }
-function emojiSvg(emoji) {
+let iconMeasureContext = null;
+const iconPositionCache = new Map();
+function centeredIconSvg(text, size, fontFamily, weight, fill) {
+  // Color fonts can report a full em box even when the visible glyph is smaller.
+  // Measure the local rendered ink once per glyph/font and reuse its position.
+  const key = JSON.stringify([text,size,fontFamily,weight]);
+  let position = iconPositionCache.get(key);
+  if (!position) {
+    let x = 32, y = 32 + size * 0.3;
+    if (!iconMeasureContext) {
+      const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
+      iconMeasureContext = canvas.getContext('2d',{ willReadFrequently:true });
+    }
+    const ctx = iconMeasureContext;
+    if (ctx) {
+      ctx.font = weight + ' ' + size + 'px ' + fontFamily;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      const { actualBoundingBoxLeft:left, actualBoundingBoxRight:right, actualBoundingBoxAscent:ascent, actualBoundingBoxDescent:descent } = ctx.measureText(text);
+      if ([left,right,ascent,descent].every(Number.isFinite) && ascent + descent > 0) {
+        x = 32 + (left - right) / 2; y = 32 + (ascent - descent) / 2;
+      }
+      try {
+        ctx.clearRect(0,0,128,128); ctx.fillStyle = '#111111'; ctx.fillText(text,64,64);
+        const pixels = ctx.getImageData(0,0,128,128).data;
+        let minX = 128, minY = 128, maxX = -1, maxY = -1;
+        for (let row = 0; row < 128; row++) for (let col = 0; col < 128; col++) {
+          if (pixels[(row * 128 + col) * 4 + 3] > 32) {
+            minX = Math.min(minX,col); maxX = Math.max(maxX,col);
+            minY = Math.min(minY,row); maxY = Math.max(maxY,row);
+          }
+        }
+        if (maxY >= minY) y = 96 - (minY + maxY + 1) / 2;
+        // Very long custom text may exceed the measuring canvas; use metrics then.
+        if (minX > 0 && maxX < 127 && maxX >= minX) x = 96 - (minX + maxX + 1) / 2;
+      } catch (_) { /* Font metrics remain a safe fallback if pixel reads fail. */ }
+    }
+    position = { x,y };
+    if (iconPositionCache.size >= 512) iconPositionCache.clear();
+    iconPositionCache.set(key,position);
+  }
   return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><text x="32" y="50" text-anchor="middle" ' +
-    'font-size="38" font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif">' + escapeXML(emoji) + '</text></svg>'
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><text x="' + position.x + '" y="' + position.y + '" text-anchor="middle" ' +
+    'font-size="' + size + '" font-weight="' + weight + '" font-family="' + fontFamily + '" fill="' + fill + '">' + escapeXML(text) + '</text></svg>'
   );
 }
+function emojiSvg(emoji) {
+  return centeredIconSvg(emoji,38,'Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif',400,'#111111');
+}
 function textSvg(text, isDark) {
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><text x="32" y="42" text-anchor="middle" ' +
-    'dominant-baseline="middle" font-size="' + (Array.from(text).length <= 2 ? 32 : 20) + '" font-weight="700" ' +
-    'font-family="Inter,system-ui,sans-serif" fill="' + (isDark ? '#ffffff' : '#111111') + '">' + escapeXML(text) + '</text></svg>'
+  // Local fonts also render inside SVG images; no external font dependency.
+  return centeredIconSvg(text,Array.from(text).length <= 2 ? 32 : 20,'system-ui,sans-serif',700,isDark ? '#ffffff' : '#111111');
+}
+function isLegacyEmojiIcon(uri, type) {
+  if (type.iconUri || type.id === 'text') return false;
+  // Upgrade only the exact built-in SVG from the supplied version, never uploads.
+  const legacy = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><text x="32" y="50" text-anchor="middle" ' +
+    'font-size="38" font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif">' + escapeXML(type.icon) + '</text></svg>'
   );
+  return uri === legacy;
 }
 function getIconUri(type) { return type.id === 'text' ? '' : type.iconUri || emojiSvg(type.icon); }
 function getCyTokenSafe(varName, fallback) {
@@ -111,7 +163,7 @@ const I18N = {
   en: {
     select:'Select', line:'Line', arrow:'Arrow', addText:'Text', undo:'Undo', redo:'Redo', delete:'Delete', fit:'Fit',
     import:'Import', save:'Save', load:'Load', guides:'Guides', lineLbl:'Line', arrowLbl:'Arrow', removeEntity:'Remove Entity',
-    removeConn:'Remove Connection', paletteHeading:'Entities', canvasHint:'Click an entity to add it \u00b7 Double-click a node or connection to edit text',
+    removeConn:'Remove Connection', paletteHeading:'Entities',
     inspEmptyText:'Select an entity or connection to view its properties', lblName:'Name', lblType:'Type', lblSize:'Size', lblFontSize:'Text Size',
     lblEdgeLabel:'Label', lblEdgeOptional:'(optional)', lblConntype:'Connection type',
     sbHints:'S \u2014 select \u00b7 L \u2014 line \u00b7 A \u2014 arrow \u00b7 T \u2014 text \u00b7 F \u2014 fit \u00b7 Del \u2014 delete \u00b7 Ctrl+Z/Y \u2014 undo/redo',
@@ -123,7 +175,8 @@ const I18N = {
     noEntities:'Add entities first', entity_whatsapp:'WhatsApp', entity_person:'Person', entity_organization:'Organization', entity_phone:'Phone',
     entity_email:'Email', entity_address:'Address', entity_vehicle:'Vehicle', entity_event:'Event', entity_bankaccount:'Bank Account',
     entity_cryptoasset:'CryptoAsset', entity_device:'Device', entity_ipaddress:'IP Address', entity_timestamp:'Timestamp', entity_text:'Text',
-    downloadPNG:'Download PNG', downloadPDF:'Download PDF', properties:'Properties', close:'Close', textWidth:'Text width', textColor:'Text color',
+    downloadPNG:'Download PNG', downloadPDF:'Download PDF', downloadPrompt:'Download Prompt', presentation:'Presentation', transparent:'Transparent', transparentHint:'No border or background',
+    presentationHelp:'Move to a screen edge to reveal controls. Press Escape to exit.', properties:'Properties', close:'Close', textWidth:'Text width', textColor:'Text color',
     automaticColor:'Auto', connectionColor:'Line / arrow color', lineWidth:'Line thickness', lineStyle:'Line Style', solid:'Solid', dashed:'Dashed',
     curve:'Curve', straight:'Straight', curved:'Curved', description:'Description (Sub-title)', startDate:'Start Date', endDate:'End Date',
     descDistance:'Desc Distance', customIcon:'Custom Icon / Image', textIcon:'Text / Emoji as Icon', applyText:'Apply Text', apply:'Apply',
@@ -136,7 +189,7 @@ const I18N = {
   pt: {
     select:'Selecionar', line:'Linha', arrow:'Seta', addText:'Texto', undo:'Desfazer', redo:'Refazer', delete:'Excluir', fit:'Ajustar',
     import:'Importar', save:'Salvar', load:'Abrir', guides:'Guias', lineLbl:'Linha', arrowLbl:'Seta', removeEntity:'Remover Entidade',
-    removeConn:'Remover Conex\u00e3o', paletteHeading:'Entidades', canvasHint:'Clique em uma entidade para adicion\u00e1-la \u00b7 Duplo clique no n\u00f3 ou conex\u00e3o para editar o texto',
+    removeConn:'Remover Conex\u00e3o', paletteHeading:'Entidades',
     inspEmptyText:'Selecione uma entidade ou conex\u00e3o para ver suas propriedades', lblName:'Nome', lblType:'Tipo', lblSize:'Tamanho', lblFontSize:'Tamanho do texto',
     lblEdgeLabel:'R\u00f3tulo', lblEdgeOptional:'(opcional)', lblConntype:'Tipo de conex\u00e3o',
     sbHints:'S \u2014 selecionar \u00b7 L \u2014 linha \u00b7 A \u2014 seta \u00b7 T \u2014 texto \u00b7 F \u2014 ajustar \u00b7 Del \u2014 excluir \u00b7 Ctrl+Z/Y \u2014 desfazer/refazer',
@@ -148,7 +201,8 @@ const I18N = {
     noEntities:'Adicione entidades primeiro', entity_whatsapp:'WhatsApp', entity_person:'Pessoa', entity_organization:'Organiza\u00e7\u00e3o', entity_phone:'Telefone',
     entity_email:'E-mail', entity_address:'Endere\u00e7o', entity_vehicle:'Ve\u00edculo', entity_event:'Evento', entity_bankaccount:'Conta Banc\u00e1ria',
     entity_cryptoasset:'CriptoAtivo', entity_device:'Dispositivo', entity_ipaddress:'Endere\u00e7o IP', entity_timestamp:'Timestamp', entity_text:'Texto',
-    downloadPNG:'Baixar PNG', downloadPDF:'Baixar PDF', properties:'Propriedades', close:'Fechar', textWidth:'Largura do texto', textColor:'Cor do texto',
+    downloadPNG:'Baixar PNG', downloadPDF:'Baixar PDF', downloadPrompt:'Baixar Prompt', presentation:'Apresenta\u00e7\u00e3o', transparent:'Transparente', transparentHint:'Sem borda e sem fundo',
+    presentationHelp:'Passe o mouse nas bordas da tela para revelar os controles. Pressione Esc para sair.', properties:'Propriedades', close:'Fechar', textWidth:'Largura do texto', textColor:'Cor do texto',
     automaticColor:'Auto', connectionColor:'Cor da linha / seta', lineWidth:'Espessura da linha', lineStyle:'Estilo da linha', solid:'Cont\u00ednua', dashed:'Tracejada',
     curve:'Curvatura', straight:'Reta', curved:'Curva', description:'Descri\u00e7\u00e3o (subt\u00edtulo)', startDate:'Data Inicial', endDate:'Data Final',
     descDistance:'Dist\u00e2ncia da descri\u00e7\u00e3o', customIcon:'\u00cdcone / Imagem personalizada', textIcon:'Texto / Emoji como \u00edcone', applyText:'Aplicar Texto', apply:'Aplicar',
@@ -168,7 +222,7 @@ function applyLang() {
   document.documentElement.lang = currentLang === 'pt' ? 'pt-BR' : 'en';
   document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   const labels = {
-    'palette-heading':'paletteHeading', 'canvas-hint':'canvasHint', 'insp-empty-text':'inspEmptyText',
+    'palette-heading':'paletteHeading', 'insp-empty-text':'inspEmptyText',
     'lbl-name':'lblName', 'lbl-type':'lblType', 'lbl-size':'lblSize', 'lbl-font-size':'lblFontSize',
     'lbl-edge-optional':'lblEdgeOptional', 'lbl-conntype':'lblConntype', 'sb-hints':'sbHints',
     'lbl-clean-bg':'cleanBg', 'lbl-wall-color':'wallColor', 'lbl-desc':'description', 'lbl-start-date':'startDate',
@@ -182,6 +236,9 @@ function applyLang() {
   setText('btn-lang', currentLang === 'en' ? 'PT-BR' : 'EN');
   setText('btn-theme-label', t(isLight ? 'themeDark' : 'themeLight'));
   $('inspector')?.setAttribute('aria-label', t('properties'));
+  $('btn-wall-transparent')?.setAttribute('title', t('transparentHint'));
+  $('btn-wall-transparent')?.setAttribute('aria-label', t('transparentHint'));
+  $('toggle-presentation')?.setAttribute('title', t('presentationHelp'));
   refreshPaletteNames();
   refreshTypeSelect();
   updateModePill(connectSrc ? 'target' : 'source');
@@ -228,7 +285,7 @@ function buildCyStyle() {
   const edgeTextBg = cleanBgEnabled ? '#ffffff' : light ? '#f0f0f0' : '#0c0c0c';
   return [
     { selector:'node', style:{
-      'background-color':nodeBg, 'background-image':node => node.data('iconSvg') || 'none',
+      'background-color':nodeBg, 'background-opacity':1, 'border-opacity':1, 'background-image':node => node.data('iconSvg') || 'none',
       'background-width':'92%', 'background-height':'92%', 'background-position-x':'50%', 'background-position-y':'50%',
       'background-clip':'none', 'border-color':nodeBdr, 'border-width':1.5, 'label':'data(name)', 'color':nodeLbl,
       'font-size':node => clamp(node.data('fontSize'), 8, 48, 11), 'font-family':'"Inter", system-ui, sans-serif',
@@ -242,6 +299,8 @@ function buildCyStyle() {
     { selector:'node.connect-src', style:{ 'border-color':nodeSelBdr, 'border-width':2.5, 'border-style':'dashed' } },
     { selector:'node[wallColor]', style:{ 'border-color':node => hexColor(node.data('wallColor'), nodeBdr) } },
     { selector:'node[wallColor]:selected', style:{ 'border-color':node => hexColor(node.data('wallColor'), nodeSelBdr), 'border-width':2 } },
+    // Hide the wall and fill, not the icon, label or interactive hit area.
+    { selector:'node[wallColor="transparent"]', style:{ 'background-opacity':0, 'border-opacity':0, 'text-outline-width':0 } },
     // Text is a real graph element, not HTML: it moves, saves, connects and exports.
     { selector:'node[type="text"]', style:{
       'background-image':'none', 'background-opacity':0, 'border-width':0, 'shape':'rectangle',
@@ -318,6 +377,7 @@ function renderDescriptions() {
 // GRAPH EVENTS AND SELECTION
 function bindCyEvents() {
   let beforeTap = [];
+  let guideDragOffset = null;
   let previousTapId = null, previousTapTime = 0, doubleTapId = null;
   cy.on('tap', 'node, edge', event => {
     const now = performance.now();
@@ -391,11 +451,20 @@ function bindCyEvents() {
   });
   cy.on('mouseover', 'node, edge', event => event.target.addClass('hovered'));
   cy.on('mouseout', 'node, edge', event => event.target.removeClass('hovered'));
-  cy.on('dragfree', 'node', () => { clearGuides(); pushHistory(); });
+  cy.on('grab', 'node', event => {
+    const pos = event.target.position(), pointer = event.position;
+    guideDragOffset = pointer ? { id:event.target.id(), x:pos.x-pointer.x, y:pos.y-pointer.y } : null;
+  });
+  cy.on('dragfree', 'node', () => { guideDragOffset = null; clearGuides(); pushHistory(); });
   cy.on('drag', 'node', event => {
     if (!guidesEnabled) return;
     const dragged = event.target;
-    const pos = dragged.position();
+    // Use the pointer's unsnapped position, so repeated small movements can
+    // leave a guide instead of being pulled back to it on every drag frame.
+    const pos = guideDragOffset?.id === dragged.id() && event.position
+      ? { x:event.position.x+guideDragOffset.x, y:event.position.y+guideDragOffset.y }
+      : { ...dragged.position() };
+    dragged.position(pos);
     const threshold = 10 / cy.zoom();
     const others = cy.nodes().filter(n => n.id() !== dragged.id() && !n.selected());
     const guides = [];
@@ -570,7 +639,10 @@ function showNodeInspector(node, open = true) {
   preview.classList.toggle('visible', !!customImg && !text);
   ['text-width-group','text-color-group'].forEach(id => { if ($(id)) $(id).hidden = !text; });
   ['node-size-group','custom-icon-group','wall-color-group'].forEach(id => { if ($(id)) $(id).hidden = text; });
-  document.querySelectorAll('.wall-color-btn').forEach(button => button.classList.toggle('active', button.dataset.wallColor === (node.data('wallColor') || '#000000')));
+  document.querySelectorAll('.wall-color-btn').forEach(button => {
+    const active = button.dataset.wallColor === (node.data('wallColor') || '#000000');
+    button.classList.toggle('active',active); button.setAttribute('aria-pressed',String(active));
+  });
   if (open) setInspectorOpen(true);
 }
 function showEdgeInspector(edge, open = true) {
@@ -751,7 +823,7 @@ function normalizeGraph(input) {
       if (data.type === 'text') data.iconSvg = '';
       else if (data.customText) data.iconSvg = textSvg(data.customText, !isCanvasLight());
       else if (data.customImg) data.iconSvg = data.customImg;
-      else if (!safeImageURL(data.iconSvg)) data.iconSvg = getIconUri(getType(data.type));
+      else if (!safeImageURL(data.iconSvg) || isLegacyEmojiIcon(data.iconSvg,getType(data.type))) data.iconSvg = getIconUri(getType(data.type));
       if (data.parent != null) data.parent = String(data.parent);
       if (element.position) {
         if (!Number.isFinite(Number(element.position.x)) || !Number.isFinite(Number(element.position.y))) throw new Error('Invalid position');
@@ -957,9 +1029,9 @@ function processRows(rows) {
   showToast(currentLang === 'pt' ? 'Importadas ' + newNodes + ' entidades e ' + newEdges + ' conex\u00f5es' : 'Imported ' + newNodes + ' entities - ' + newEdges + ' connections');
 }
 
-// DROPDOWN: the five actions are already in the supplied HTML.
+// DROPDOWN: original file actions plus prompt download and presentation.
 function menuIsOpen() { return !!$('file-menu') && !$('file-menu').hidden; }
-function menuItems() { return Array.from($('file-menu')?.querySelectorAll('[role="menuitem"]:not(:disabled)') || []); }
+function menuItems() { return Array.from($('file-menu')?.querySelectorAll('[role="menuitem"]:not(:disabled),[role="menuitemcheckbox"]:not(:disabled)') || []); }
 function positionFileMenu() {
   if (!menuIsOpen()) return;
   const menu = $('file-menu'), button = $('btn-file-menu'), rect = button.getBoundingClientRect();
@@ -980,13 +1052,15 @@ function positionFileMenu() {
 }
 function openFileMenu(focus = true, last = false) {
   if (!$('file-menu')) return;
-  $('file-menu').hidden = false; $('btn-file-menu').setAttribute('aria-expanded','true'); positionFileMenu();
+  $('file-menu').hidden = false; $('btn-file-menu').setAttribute('aria-expanded','true');
+  updatePresentationPanels(); positionFileMenu();
   if (focus) { const items = menuItems(); (last ? items[items.length-1] : items[0])?.focus(); }
 }
 function closeFileMenu(restoreFocus = false) {
   if (!$('file-menu')) return;
   $('file-menu').hidden = true; $('btn-file-menu')?.setAttribute('aria-expanded','false');
   if (restoreFocus) $('btn-file-menu')?.focus();
+  updatePresentationPanels();
 }
 function initFileMenu() {
   on('btn-file-menu','click',() => menuIsOpen() ? closeFileMenu(true) : openFileMenu());
@@ -995,6 +1069,9 @@ function initFileMenu() {
   });
   on('file-menu','keydown',event => {
     const items = menuItems(), index = items.indexOf(document.activeElement);
+    if (event.key === ' ' && document.activeElement?.id === 'btn-download-prompt') {
+      event.preventDefault(); document.activeElement.click(); return;
+    }
     let next = null;
     if (event.key === 'ArrowDown') next = (index+1)%items.length;
     if (event.key === 'ArrowUp') next = (index-1+items.length)%items.length;
@@ -1015,11 +1092,98 @@ function bindMenuAction(id, action) {
   on(id,'click',() => { closeFileMenu(); action(); });
 }
 
+// PRESENTATION: reversible view-only state, never stored in graph JSON/history.
+function updatePresentationLayout() {
+  if (!presentationEnabled) return;
+  const app = document.querySelector('.app');
+  app.style.setProperty('--presentation-toolbar-h',document.querySelector('.toolbar').offsetHeight + 'px');
+  app.style.setProperty('--presentation-statusbar-h',document.querySelector('.statusbar').offsetHeight + 'px');
+}
+function revealPresentationPanel(panel, visible) {
+  clearTimeout(panel.timer); panel.timer = null;
+  panel.element.classList.toggle('presentation-revealed',visible);
+}
+function presentationPanelWanted(panel) {
+  if (!presentationEnabled) return false;
+  const active = document.activeElement;
+  const editing = ['INPUT','TEXTAREA','SELECT'].includes(active?.tagName) || active?.isContentEditable;
+  if (panel.edge === 'top' && menuIsOpen()) return true;
+  if (presentationKeyboard || (editing && panel.element.contains(active))) return true;
+  if (!presentationPointer) return false;
+  const { x,y } = presentationPointer;
+  const w = document.documentElement.clientWidth, h = document.documentElement.clientHeight, edge = 14;
+  const nearEdge = panel.edge === 'top' ? y <= edge : panel.edge === 'bottom' ? y >= h-edge :
+    panel.edge === 'left' ? x <= edge : x >= w-edge;
+  if (nearEdge) return true;
+  if (!panel.element.classList.contains('presentation-revealed')) return false;
+  const rect = panel.element.getBoundingClientRect();
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+}
+function updatePresentationPanels() {
+  if (!presentationEnabled) return;
+  presentationPanels.forEach(panel => {
+    if (presentationPanelWanted(panel)) revealPresentationPanel(panel,true);
+    else if (!panel.timer) panel.timer = setTimeout(() => {
+      panel.timer = null;
+      if (!presentationPanelWanted(panel)) revealPresentationPanel(panel,false);
+    },300);
+  });
+}
+function setPresentationMode(enabled) {
+  presentationEnabled = !!enabled;
+  presentationPointer = null; presentationKeyboard = false;
+  closeFileMenu();
+  const active = document.activeElement;
+  if (presentationEnabled && active instanceof HTMLElement) active.blur();
+  document.querySelector('.app').classList.toggle('presentation-mode',presentationEnabled);
+  $('toggle-presentation')?.setAttribute('aria-checked',String(presentationEnabled));
+  const state = $('toggle-presentation')?.querySelector('.menu-toggle-state');
+  if (state) state.textContent = presentationEnabled ? 'ON' : 'OFF';
+  presentationPanels.forEach(panel => revealPresentationPanel(panel,false));
+  updatePresentationLayout(); scheduleResize();
+  if (!presentationEnabled) $('btn-file-menu')?.focus();
+}
+function initPresentation() {
+  [['.toolbar','top'],['.palette','left'],['.inspector','right'],['.statusbar','bottom']].forEach(([selector,edge]) => {
+    const element = document.querySelector(selector);
+    if (element) presentationPanels.push({ element,edge,timer:null });
+  });
+  document.addEventListener('pointermove',event => {
+    if (!presentationEnabled || event.pointerType === 'touch' || event.buttons) return;
+    presentationKeyboard = false; presentationPointer = { x:event.clientX,y:event.clientY };
+    updatePresentationPanels();
+  },{ passive:true });
+  document.addEventListener('pointerdown',event => {
+    if (!presentationEnabled) return;
+    presentationKeyboard = false; presentationPointer = { x:event.clientX,y:event.clientY };
+    updatePresentationPanels();
+  },{ passive:true });
+  document.addEventListener('pointerout',event => {
+    if (presentationEnabled && event.pointerType !== 'touch' && !event.relatedTarget) { presentationPointer = null; updatePresentationPanels(); }
+  });
+  document.addEventListener('focusin',event => {
+    if (!presentationEnabled) return;
+    presentationPanels.forEach(panel => {
+      if (panel.element.contains(event.target)) revealPresentationPanel(panel,true);
+    });
+  });
+  document.addEventListener('focusout',() => {
+    if (presentationEnabled) setTimeout(updatePresentationPanels,0);
+  });
+  document.addEventListener('keydown',event => {
+    // Reveal before the browser computes Tab's next target; no keyboard trap.
+    if (presentationEnabled && event.key === 'Tab' && !visibleModal()) {
+      presentationKeyboard = true; updatePresentationPanels();
+    }
+  },true);
+}
+
 // RESPONSIVE CANVAS: changes to the wrapping header must update hit coordinates.
 function scheduleResize() {
   if (resizeFrame) return;
   resizeFrame = requestAnimationFrame(() => {
     resizeFrame = 0;
+    updatePresentationLayout();
     if (cy && !cy.destroyed()) cy.resize();
     clearGuides(); scheduleDescriptions(); positionFileMenu();
     if (timelineObj && $('timeline-modal')?.style.display !== 'none') timelineObj.redraw();
@@ -1078,6 +1242,8 @@ function initToolbar() {
   on('btn-text','click',addText); on('btn-undo','click',undo); on('btn-redo','click',redo); on('btn-delete','click',deleteSelected); on('btn-fit','click',fitGraph);
   bindMenuAction('btn-png',exportPNG); bindMenuAction('btn-pdf',exportPDF); bindMenuAction('btn-save',exportJSON);
   bindMenuAction('btn-load',() => $('load-input')?.click());
+  on('btn-download-prompt','click',() => closeFileMenu());
+  bindMenuAction('toggle-presentation',() => setPresentationMode(!presentationEnabled));
   bindMenuAction('btn-flaticon-menu',() => window.open('https://www.flaticon.com/','_blank','noopener,noreferrer'));
   on('load-input','change',event => { const file = event.target.files[0]; event.target.value = ''; if (file) importJSON(file); });
   on('file-input','change',event => { const file = event.target.files[0]; event.target.value = ''; if (file) importFile(file); });
@@ -1181,7 +1347,9 @@ function initInspector() {
     const selected = cy.nodes(':selected');
     const targets = selected.length ? selected : liveSelection('node') ? selectedEl : cy.collection();
     targets.filter(node => !isTextNode(node)).forEach(node => node.data('wallColor',button.dataset.wallColor));
-    document.querySelectorAll('.wall-color-btn').forEach(item => item.classList.toggle('active',item === button));
+    document.querySelectorAll('.wall-color-btn').forEach(item => {
+      item.classList.toggle('active',item === button); item.setAttribute('aria-pressed',String(item === button));
+    });
     pushHistory();
   }));
 }
@@ -1206,6 +1374,7 @@ function initKeyboard() {
       return;
     }
     if (menuIsOpen()) { if (event.key === 'Escape') { event.preventDefault(); closeFileMenu(true); } return; }
+    if (presentationEnabled && event.key === 'Escape') { event.preventDefault(); setPresentationMode(false); return; }
     const active = document.activeElement;
     if (['INPUT','TEXTAREA','SELECT'].includes(active?.tagName) || active?.isContentEditable) return;
     const ctrl = event.ctrlKey || event.metaKey, key = event.key.toLowerCase();
@@ -1306,7 +1475,7 @@ function bootstrap() {
   try {
     if (typeof window.cytoscape !== 'function') throw new Error('Cytoscape did not load from the CDN.');
     isLight = document.documentElement.classList.contains('light');
-    initCy(); initPalette(); initTypeSelect(); initToolbar(); initInspector(); initKeyboard(); initResponsive();
+    initCy(); initPalette(); initTypeSelect(); initToolbar(); initInspector(); initKeyboard(); initPresentation(); initResponsive();
     applyLang(); pushHistory(); updateToolbar(); updateStatus();
     if ($('startup-error')) $('startup-error').hidden = true;
     if (visibleModal()?.id === 'startup-modal') $('btn-close-modal')?.focus();

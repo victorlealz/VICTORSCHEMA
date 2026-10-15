@@ -76,7 +76,6 @@
     .guide-line.v { top:0; bottom:0; width:1.5px; }
     .mode-pill { position:absolute; top:14px; left:50%; transform:translateX(-50%); padding:5px 16px; background:var(--surface); border:1px solid var(--border-hi); border-radius:20px; font-size:11px; font-weight:500; color:var(--text-dim); pointer-events:none; opacity:0; transition:opacity .2s ease; max-width:calc(100% - 20px); text-align:center; z-index:10; }
     .mode-pill.visible { opacity:1; }
-    .canvas-hint { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); font-size:11px; color:var(--text-muted); pointer-events:none; width:max-content; max-width:calc(100% - 28px); text-align:center; line-height:1.5; letter-spacing:.3px; }
     .inspector { width:var(--inspector-w); min-width:var(--inspector-w); max-width:var(--inspector-w); min-height:0; background:var(--surface); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; flex-shrink:0; transition:background .2s,border-color .2s; }
     .mobile-inspector-toggle,.inspector-close { display:none; }
     .insp-empty { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:28px 20px; text-align:center; }
@@ -173,7 +172,33 @@
       .inspector-close { display:flex; align-self:flex-end; margin:8px 10px 0; flex-shrink:0; }
       .statusbar { padding:4px 10px; gap:10px; }
     }
-    @media (max-width:480px) { .toolbar-logo { width:100%; font-size:11px; } .toolbar { gap:4px; } .toolbar .btn { font-size:11px; padding:5px 7px; } .canvas-hint { font-size:10px; } }
+    @media (max-width:480px) { .toolbar-logo { width:100%; font-size:11px; } .toolbar { gap:4px; } .toolbar .btn { font-size:11px; padding:5px 7px; } }
+
+    /* New controls use the existing theme and require no dependency. */
+    .dropdown-menu a.btn { text-decoration:none; }
+    .menu-toggle-state { margin-left:auto; font-size:9px; letter-spacing:.5px; }
+    .menu-toggle-track { width:30px; height:16px; flex-shrink:0; border-radius:16px; background:var(--border-mid); position:relative; }
+    .menu-toggle-track::before { content:''; position:absolute; width:12px; height:12px; top:2px; left:2px; border-radius:50%; background:#fff; transition:transform .15s; }
+    #toggle-presentation[aria-checked="true"] .menu-toggle-track { background:var(--accent); }
+    #toggle-presentation[aria-checked="true"] .menu-toggle-track::before { transform:translateX(14px); }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    .wall-color-transparent { display:inline-flex; align-items:center; gap:4px; width:auto; height:22px; border-radius:4px; padding:1px 5px; background:transparent; color:var(--text-dim); font:inherit; font-size:10px; line-height:1.2; }
+    .wall-color-transparent::before { content:''; width:12px; height:12px; flex-shrink:0; border:1px solid var(--border-hi); background:repeating-conic-gradient(var(--border-mid) 0% 25%,var(--surface) 0% 50%) 50% / 6px 6px; }
+    .wall-color-transparent:hover { transform:none; color:var(--text); }
+    .wall-color-btn:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+    /* Presentation is only editor state. Panels overlay the full-size canvas;
+       showing them never changes graph positions, zoom or the canvas size. */
+    .app.presentation-mode { position:relative; }
+    .app.presentation-mode .workspace { position:absolute; inset:0; }
+    .app.presentation-mode .canvas-wrap { position:absolute; inset:0; }
+    .app.presentation-mode .toolbar { position:absolute; top:0; left:0; right:0; transform:translateY(-100%); }
+    .app.presentation-mode .statusbar { position:absolute; bottom:0; left:0; right:0; z-index:50; transform:translateY(100%); }
+    .app.presentation-mode .palette,.app.presentation-mode .inspector { position:absolute; top:var(--presentation-toolbar-h,50px); bottom:var(--presentation-statusbar-h,28px); z-index:40; }
+    .app.presentation-mode .palette { left:0; transform:translateX(-100%); }
+    .app.presentation-mode .inspector { right:0; transform:translateX(100%); }
+    .app.presentation-mode .toolbar,.app.presentation-mode .statusbar,.app.presentation-mode .palette,.app.presentation-mode .inspector { opacity:0; visibility:hidden; pointer-events:none; transition:opacity .15s ease,transform .15s ease,visibility .15s; }
+    .app.presentation-mode .presentation-revealed { opacity:1; visibility:visible; pointer-events:auto; transform:none; }
+    @media (prefers-reduced-motion:reduce) { .app.presentation-mode .toolbar,.app.presentation-mode .statusbar,.app.presentation-mode .palette,.app.presentation-mode .inspector { transition:none; } }
   </style>
 </head>
 <body>
@@ -185,7 +210,6 @@
       <button class="btn active" id="btn-select" title="Select &amp; Move [S]">&#10022; <span data-i18n="select">Select</span></button>
       <button class="btn" id="btn-line" title="Draw plain line [L]">&mdash; <span data-i18n="line">Line</span></button>
       <button class="btn" id="btn-arrow" title="Draw arrow [A]">&rarr; <span data-i18n="arrow">Arrow</span></button>
-      <button class="btn" id="btn-text" title="Add text [T]">T <span data-i18n="addText">Text</span></button>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
@@ -234,7 +258,6 @@
       <div id="cy" aria-label="Schema canvas"></div>
       <div id="align-guides"></div>
       <div class="mode-pill" id="mode-pill"></div>
-      <div class="canvas-hint" id="canvas-hint">Click an entity to add it &nbsp;&middot;&nbsp; Double-click a node to rename</div>
     </main>
     <aside class="inspector" id="inspector" aria-label="Properties">
       <button class="btn inspector-close" id="btn-close-inspector">&#10005; <span data-i18n="close">Close</span></button>
@@ -270,6 +293,7 @@
             <button class="wall-color-btn" data-wall-color="#30a060" style="background:#30a060" title="Green" aria-label="Green"></button>
             <button class="wall-color-btn" data-wall-color="#e8c840" style="background:#e8c840" title="Yellow" aria-label="Yellow"></button>
             <button class="wall-color-btn" data-wall-color="#ffffff" style="background:#ffffff" title="White" aria-label="White"></button>
+            <button class="wall-color-btn wall-color-transparent" id="btn-wall-transparent" type="button" data-wall-color="transparent" title="No border or background" aria-label="No border or background" aria-pressed="false"><span data-i18n="transparent">Transparent</span></button>
           </div></div>
         </div>
         <div class="insp-footer"><button class="btn danger" id="btn-del-node">&#10005; <span data-i18n="removeEntity">Remove Entity</span></button></div>
@@ -292,13 +316,20 @@
   </div>
   <footer class="statusbar"><span class="sb-stat" id="sb-nodes">0 entities</span><div class="sb-sep"></div><span class="sb-stat" id="sb-edges">0 connections</span><span class="sb-hints" id="sb-hints">S &mdash; select &middot; L &mdash; line &middot; A &mdash; arrow &middot; T &mdash; text &middot; F &mdash; fit &middot; Del &mdash; delete &middot; Ctrl+Z/Y &mdash; undo/redo</span></footer>
 </div>
-<!-- Exactly the five requested actions have moved into this dropdown. -->
+<!-- Existing file actions, bundled prompt download and presentation toggle. -->
 <div id="file-menu" class="dropdown-menu" role="menu" aria-labelledby="btn-file-menu" hidden>
   <button class="btn" id="btn-png" role="menuitem">&#8595; <span data-i18n="downloadPNG">Download PNG</span></button>
   <button class="btn" id="btn-pdf" role="menuitem">&#8595; <span data-i18n="downloadPDF">Download PDF</span></button>
   <div class="dropdown-divider" role="separator"></div>
   <button class="btn" id="btn-save" role="menuitem" title="Save JSON">&#128190; <span data-i18n="save">Save</span></button>
   <button class="btn" id="btn-load" role="menuitem" title="Load JSON">&#128194; <span data-i18n="load">Load</span></button>
+  <a class="btn" id="btn-download-prompt" role="menuitem" href="prompt_victorschema_relatorio_policial.txt" target="_blank" rel="noopener noreferrer">&#8595; <span data-i18n="downloadPrompt">Download Prompt</span></a>
+  <div class="dropdown-divider" role="separator"></div>
+  <button class="btn" id="toggle-presentation" type="button" role="menuitemcheckbox" aria-checked="false" aria-labelledby="lbl-presentation" aria-describedby="presentation-help">
+    <span id="lbl-presentation" data-i18n="presentation">Presentation</span>
+    <span class="menu-toggle-state" aria-hidden="true">OFF</span><span class="menu-toggle-track" aria-hidden="true"></span>
+  </button>
+  <span id="presentation-help" class="sr-only" data-i18n="presentationHelp">Move to a screen edge to reveal controls. Press Escape to exit.</span>
   <div class="dropdown-divider" role="separator"></div>
   <button class="btn" id="btn-flaticon-menu" role="menuitem" title="Flaticon (Free Icons)" style="color:#1dc1a9">&#128142; Flaticon</button>
 </div>
