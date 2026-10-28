@@ -131,7 +131,12 @@
     .modal-content p { font-size:13px; margin-bottom:10px; color:var(--text-dim); }
     .modal-content ul { font-size:13px; color:var(--text); padding-left:20px; margin-bottom:15px; }
     .modal-content li { margin-bottom:6px; }
-    #file-input,#node-img-input,#load-input { display:none; }
+    #file-input,#node-img-input,#load-input,#canvas-image-input { display:none; }
+    .connection-options { display:flex; align-items:center; gap:8px; min-height:27px; }
+    .connection-options[hidden] { display:none !important; }
+    .edge-curve-layer { position:absolute; inset:0; pointer-events:none; z-index:24; }
+    .edge-curve-handle { position:absolute; width:14px; height:14px; border-radius:50%; border:2px solid var(--accent); background:var(--surface); transform:translate(-50%,-50%); pointer-events:auto; cursor:grab; box-shadow:0 1px 5px rgba(0,0,0,.25); }
+    .edge-curve-handle:active { cursor:grabbing; }
     .toggle-switch { position:relative; display:inline-block; width:34px; height:18px; flex-shrink:0; }
     .toggle-switch input { opacity:0; width:0; height:0; }
     .toggle-switch .slider { position:absolute; cursor:pointer; inset:0; background:var(--border-mid); border-radius:18px; transition:.2s; }
@@ -211,6 +216,16 @@
       <button class="btn" id="btn-line" title="Draw plain line [L]">&mdash; <span data-i18n="line">Line</span></button>
       <button class="btn" id="btn-arrow" title="Draw arrow [A]">&rarr; <span data-i18n="arrow">Arrow</span></button>
     </div>
+    <div class="tb-group connection-options" id="connection-options" hidden>
+      <div class="tb-toggle-group">
+        <label class="toggle-switch" title="Curvar conexão"><input type="checkbox" id="toggle-draw-curved" aria-labelledby="lbl-draw-curved"><span class="slider"></span></label>
+        <span class="tb-toggle-label" id="lbl-draw-curved" data-i18n="drawCurved">Curvar</span>
+      </div>
+      <div class="tb-toggle-group" id="double-arrow-option" hidden>
+        <label class="toggle-switch" title="Seta com duas pontas"><input type="checkbox" id="toggle-double-arrow" aria-labelledby="lbl-double-arrow"><span class="slider"></span></label>
+        <span class="tb-toggle-label" id="lbl-double-arrow" data-i18n="doubleArrow">Duas pontas</span>
+      </div>
+    </div>
     <div class="tb-sep"></div>
     <div class="tb-group">
       <button class="btn" id="btn-undo" title="Undo [Ctrl+Z]" disabled>&#8617; <span data-i18n="undo">Undo</span></button>
@@ -230,6 +245,7 @@
     <div class="tb-sep"></div>
     <button class="btn" id="btn-file-menu" aria-haspopup="menu" aria-expanded="false" aria-controls="file-menu">Menu <span aria-hidden="true">&#9662;</span></button>
     <input type="file" id="load-input" accept=".json,application/json">
+    <input type="file" id="canvas-image-input" accept="image/*">
     <div class="tb-sep"></div>
     <div class="tb-group">
       <button class="btn" id="btn-lang" title="Switch language / Trocar idioma">PT-BR</button>
@@ -257,6 +273,7 @@
     <main class="canvas-wrap" id="canvas-wrap">
       <div id="cy" aria-label="Schema canvas"></div>
       <div id="align-guides"></div>
+      <div class="edge-curve-layer" id="edge-curve-layer" aria-hidden="true"><div class="edge-curve-handle" id="edge-curve-handle" hidden></div></div>
       <div class="mode-pill" id="mode-pill"></div>
     </main>
     <aside class="inspector" id="inspector" aria-label="Properties">
@@ -309,6 +326,7 @@
           <div class="form-group"><div class="form-label" id="lbl-conntype">Connection type</div><div class="toggle-row"><button class="btn active" id="ie-line-btn">&mdash; <span data-i18n="lineLbl">Line</span></button><button class="btn" id="ie-arrow-btn">&rarr; <span data-i18n="arrowLbl">Arrow</span></button></div></div>
           <div class="form-group"><div class="form-label" data-i18n="lineStyle">Line Style</div><div class="toggle-row"><button class="btn active" id="ie-solid-btn" data-i18n="solid">Solid</button><button class="btn" id="ie-dashed-btn" data-i18n="dashed">Dashed</button></div></div>
           <div class="form-group"><div class="form-label" data-i18n="curve">Curve</div><div class="toggle-row"><button class="btn active" id="ie-straight-btn" data-i18n="straight">Straight</button><button class="btn" id="ie-curved-btn" data-i18n="curved">Curved</button></div></div>
+          <div class="form-group" id="double-arrow-inspector"><div class="form-label" data-i18n="arrowHeads">Arrow heads</div><div class="tb-toggle-group"><label class="toggle-switch"><input type="checkbox" id="ie-double-arrow"><span class="slider"></span></label><span class="tb-toggle-label" data-i18n="doubleArrow">Duas pontas</span></div></div>
         </div>
         <div class="insp-footer"><button class="btn danger" id="btn-del-edge">&#10005; <span data-i18n="removeConn">Remove Connection</span></button></div>
       </div>

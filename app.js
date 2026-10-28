@@ -16,6 +16,7 @@ const PERSON_SVG_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
   '<circle cx="32" cy="20" r="13" fill="#909090"/>' +
   '<path d="M6 56 C6 40 18 33 32 33 C46 33 58 40 58 56 Z" fill="#909090"/></svg>'
 );
+const PROVIDER_ICON_URI = 'https://cdn-icons-png.flaticon.com/512/2165/2165037.png';
 const CRYPTO_SVG_URI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">' +
   '<circle cx="32" cy="32" r="27" fill="#f5a623"/>' +
@@ -37,6 +38,8 @@ const ENTITY_TYPES = [
   { id: 'device', name: 'Device', icon: '\uD83D\uDCBB' },
   { id: 'ipaddress', name: 'IP Address', icon: '\uD83C\uDF10' },
   { id: 'timestamp', name: 'Timestamp', icon: '\u23F1\uFE0F' },
+  { id: 'provider', name: 'Provider', icon: '\uD83C\uDF10', iconUri: PROVIDER_ICON_URI },
+  { id: 'image', name: 'Image', icon: '\uD83D\uDDBC\uFE0F' },
   { id: 'text', name: 'Text', icon: 'T' },
 ];
 
@@ -44,6 +47,9 @@ const ENTITY_TYPES = [
 let cy = null;
 let mode = 'select';
 let connectSrc = null;
+let drawCurved = false;
+let drawDoubleArrow = false;
+let curveDrag = null;
 let selectedEl = null;
 let history = [];
 let histIdx = -1;
@@ -174,11 +180,11 @@ const I18N = {
     selectAll:'All', cleanBg:'Clean BG', timeline:'Timeline', wallColor:'Wall Color', timelineTitle:'\uD83D\uDCCB Timeline', autoSaved:'Auto-saved!',
     noEntities:'Add entities first', entity_whatsapp:'WhatsApp', entity_person:'Person', entity_organization:'Organization', entity_phone:'Phone',
     entity_email:'Email', entity_address:'Address', entity_vehicle:'Vehicle', entity_event:'Event', entity_bankaccount:'Bank Account',
-    entity_cryptoasset:'CryptoAsset', entity_device:'Device', entity_ipaddress:'IP Address', entity_timestamp:'Timestamp', entity_text:'Text',
+    entity_cryptoasset:'CryptoAsset', entity_device:'Device', entity_ipaddress:'IP Address', entity_timestamp:'Timestamp', entity_provider:'Provider', entity_image:'Image', entity_text:'Text',
     downloadPNG:'Download PNG', downloadPDF:'Download PDF', downloadPrompt:'Download Prompt', presentation:'Presentation', transparent:'Transparent', transparentHint:'No border or background',
     presentationHelp:'Move to a screen edge to reveal controls. Press Escape to exit.', properties:'Properties', close:'Close', textWidth:'Text width', textColor:'Text color',
     automaticColor:'Auto', connectionColor:'Line / arrow color', lineWidth:'Line thickness', lineStyle:'Line Style', solid:'Solid', dashed:'Dashed',
-    curve:'Curve', straight:'Straight', curved:'Curved', description:'Description (Sub-title)', startDate:'Start Date', endDate:'End Date',
+    curve:'Curve', straight:'Straight', curved:'Curved', drawCurved:'Curve', doubleArrow:'Double headed', arrowHeads:'Arrow heads', description:'Description (Sub-title)', startDate:'Start Date', endDate:'End Date',
     descDistance:'Desc Distance', customIcon:'Custom Icon / Image', textIcon:'Text / Emoji as Icon', applyText:'Apply Text', apply:'Apply',
     loaded:'Schema loaded successfully!', invalidJSON:'Invalid graph JSON. The current schema was not changed.', readError:'Could not read the file.',
     exportError:'Export failed. Check that external icons are accessible and try again.', missingPDF:'The PDF library did not load. Reload the page and try again.',
@@ -200,11 +206,11 @@ const I18N = {
     selectAll:'Tudo', cleanBg:'Fundo Limpo', timeline:'Linha do Tempo', wallColor:'Cor da Parede', timelineTitle:'\uD83D\uDCCB Linha do Tempo', autoSaved:'Salvo automaticamente!',
     noEntities:'Adicione entidades primeiro', entity_whatsapp:'WhatsApp', entity_person:'Pessoa', entity_organization:'Organiza\u00e7\u00e3o', entity_phone:'Telefone',
     entity_email:'E-mail', entity_address:'Endere\u00e7o', entity_vehicle:'Ve\u00edculo', entity_event:'Evento', entity_bankaccount:'Conta Banc\u00e1ria',
-    entity_cryptoasset:'CriptoAtivo', entity_device:'Dispositivo', entity_ipaddress:'Endere\u00e7o IP', entity_timestamp:'Timestamp', entity_text:'Texto',
+    entity_cryptoasset:'CriptoAtivo', entity_device:'Dispositivo', entity_ipaddress:'Endere\u00e7o IP', entity_timestamp:'Timestamp', entity_provider:'Provedor', entity_image:'Imagem', entity_text:'Texto',
     downloadPNG:'Baixar PNG', downloadPDF:'Baixar PDF', downloadPrompt:'Baixar Prompt', presentation:'Apresenta\u00e7\u00e3o', transparent:'Transparente', transparentHint:'Sem borda e sem fundo',
     presentationHelp:'Passe o mouse nas bordas da tela para revelar os controles. Pressione Esc para sair.', properties:'Propriedades', close:'Fechar', textWidth:'Largura do texto', textColor:'Cor do texto',
     automaticColor:'Auto', connectionColor:'Cor da linha / seta', lineWidth:'Espessura da linha', lineStyle:'Estilo da linha', solid:'Cont\u00ednua', dashed:'Tracejada',
-    curve:'Curvatura', straight:'Reta', curved:'Curva', description:'Descri\u00e7\u00e3o (subt\u00edtulo)', startDate:'Data Inicial', endDate:'Data Final',
+    curve:'Curvatura', straight:'Reta', curved:'Curva', drawCurved:'Curvar', doubleArrow:'Duas pontas', arrowHeads:'Pontas da seta', description:'Descri\u00e7\u00e3o (subt\u00edtulo)', startDate:'Data Inicial', endDate:'Data Final',
     descDistance:'Dist\u00e2ncia da descri\u00e7\u00e3o', customIcon:'\u00cdcone / Imagem personalizada', textIcon:'Texto / Emoji como \u00edcone', applyText:'Aplicar Texto', apply:'Aplicar',
     loaded:'Esquema carregado com sucesso!', invalidJSON:'JSON de esquema inv\u00e1lido. O esquema atual n\u00e3o foi alterado.', readError:'N\u00e3o foi poss\u00edvel ler o arquivo.',
     exportError:'Falha na exporta\u00e7\u00e3o. Verifique o acesso aos \u00edcones externos e tente novamente.', missingPDF:'A biblioteca de PDF n\u00e3o carregou. Recarregue a p\u00e1gina e tente novamente.',
@@ -320,7 +326,7 @@ function buildCyStyle() {
       'curve-style':'bezier', 'label':'data(label)', 'color':edge => hexColor(edge.data('textColor'), edgeLbl),
       'font-size':edge => clamp(edge.data('fontSize'), 8, 72, 10), 'font-family':'"Inter", system-ui, sans-serif',
       'text-wrap':'wrap', 'text-max-width':300, 'text-background-color':edgeTextBg, 'text-background-opacity':1,
-      'text-background-padding':'3px', 'target-arrow-shape':'none', 'source-arrow-shape':'none',
+      'text-background-padding':'3px', 'target-arrow-shape':'none', 'source-arrow-shape':edge => edge.data('edgeType') === 'arrow' && edge.data('bidirectional') ? 'triangle' : 'none',
       'z-index':1, 'events':'yes', 'text-events':'yes', 'overlay-opacity':0,
     } },
     // Selection overlays do not overwrite the user's colour or line width.
@@ -328,7 +334,7 @@ function buildCyStyle() {
     { selector:'edge:selected', style:{ 'overlay-color':'#4a9eff', 'overlay-opacity':0.16, 'overlay-padding':5 } },
     { selector:'edge[lineStyle="dashed"]', style:{ 'line-style':'dashed', 'line-dash-pattern':[6,4] } },
     { selector:'edge[curve="straight"]', style:{ 'curve-style':'straight' } },
-    { selector:'edge[curve="curved"]', style:{ 'curve-style':'unbundled-bezier', 'control-point-distances':[60], 'control-point-weights':[0.5] } },
+    { selector:'edge[curve="curved"]', style:{ 'curve-style':'unbundled-bezier', 'control-point-distances':edge => [clamp(edge.data('curveDistance'),-1200,1200,60)], 'control-point-weights':edge => [clamp(edge.data('curveWeight'),-2,3,0.5)] } },
     { selector:'edge[edgeType="arrow"]', style:{ 'target-arrow-shape':'triangle' } },
     { selector:'edge:loop', style:{ 'curve-style':'bezier' } },
   ];
@@ -446,6 +452,7 @@ function bindCyEvents() {
         if (!selectedEl.length) selectedEl = null;
       }
       refreshInspector(false);
+      updateCurveHandle();
       updateToolbar();
     });
   });
@@ -480,7 +487,8 @@ function bindCyEvents() {
     });
     renderGuides(guides);
   });
-  cy.on('pan zoom', clearGuides);
+  cy.on('pan zoom', () => { clearGuides(); updateCurveHandle(); });
+  cy.on('render position data resize', updateCurveHandle);
 }
 /** Central selection helper, missing in the original connection click handler. */
 function selectElement(element) {
@@ -490,10 +498,11 @@ function selectElement(element) {
   element.select();
   selectedEl = element;
   refreshInspector(true);
+  updateCurveHandle();
   updateToolbar();
 }
 function clearSelection() {
-  cy.elements().unselect(); selectedEl = null; showEmpty(); updateToolbar();
+  cy.elements().unselect(); selectedEl = null; showEmpty(); updateCurveHandle(); updateToolbar();
 }
 function refreshInspector(open = false) {
   if (liveSelection('node')) showNodeInspector(selectedEl, open);
@@ -528,7 +537,8 @@ function handleConnectTap(node) {
 function createEdge(src, tgt, type) {
   const edge = cy.add({ group:'edges', data:{
     id:uid(), source:src.id(), target:tgt.id(), edgeType:type === 'arrow' ? 'arrow' : 'line', label:'',
-    color:null, textColor:null, fontSize:10, width:1.5, lineStyle:'solid', curve:'straight',
+    color:null, textColor:null, fontSize:10, width:1.5, lineStyle:'solid', curve:drawCurved ? 'curved' : 'straight',
+    curveDistance:60, curveWeight:0.5, bidirectional:type === 'arrow' && drawDoubleArrow,
   } });
   updateStatus();
   return edge;
@@ -539,6 +549,8 @@ function setMode(newMode) {
   mode = newMode;
   ['select','line','arrow'].forEach(id => $('btn-' + id)?.classList.toggle('active', mode === id));
   $('cy').style.cursor = mode === 'select' ? '' : 'crosshair';
+  if ($('connection-options')) $('connection-options').hidden = mode === 'select';
+  if ($('double-arrow-option')) $('double-arrow-option').hidden = mode !== 'arrow';
   cy.autoungrabify(mode !== 'select');
   updateModePill('source');
   if (mode !== 'select') { clearSelection(); setInspectorOpen(false); }
@@ -550,8 +562,54 @@ function updateModePill(step) {
   if (mode !== 'select') pill.textContent = t(mode === 'line' ? (step === 'target' ? 'modeLineTgt' : 'modeLineSrc') : (step === 'target' ? 'modeArrowTgt' : 'modeArrowSrc'));
 }
 
+function updateCurveHandle() {
+  const handle = $('edge-curve-handle');
+  if (!handle || !cy) return;
+  const edge = liveSelection('edge') ? selectedEl : null;
+  if (!edge || edge.data('curve') !== 'curved' || edge.isLoop()) { handle.hidden = true; return; }
+  const src = edge.source().position(), tgt = edge.target().position();
+  const dx = tgt.x-src.x, dy = tgt.y-src.y, len = Math.hypot(dx,dy);
+  if (!len) { handle.hidden = true; return; }
+  const weight = clamp(edge.data('curveWeight'),-2,3,0.5), dist = clamp(edge.data('curveDistance'),-1200,1200,60);
+  const mx = src.x + dx*weight, my = src.y + dy*weight;
+  const x = mx + (-dy/len)*dist, y = my + (dx/len)*dist;
+  const rendered = modelToScreenCoords(x,y);
+  handle.style.left = rendered.x + 'px'; handle.style.top = rendered.y + 'px'; handle.hidden = false;
+}
+function initCurveHandle() {
+  const handle = $('edge-curve-handle');
+  if (!handle) return;
+  handle.addEventListener('pointerdown', event => {
+    if (!liveSelection('edge') || selectedEl.data('curve') !== 'curved') return;
+    event.preventDefault(); event.stopPropagation();
+    curveDrag = { edge:selectedEl, changed:false };
+    handle.setPointerCapture?.(event.pointerId);
+  });
+  handle.addEventListener('pointermove', event => {
+    if (!curveDrag?.edge || curveDrag.edge.removed()) return;
+    const rect = $('cy').getBoundingClientRect(), pan = cy.pan(), zoom = cy.zoom();
+    const p = { x:(event.clientX-rect.left-pan.x)/zoom, y:(event.clientY-rect.top-pan.y)/zoom };
+    const src = curveDrag.edge.source().position(), tgt = curveDrag.edge.target().position();
+    const dx=tgt.x-src.x, dy=tgt.y-src.y, len2=dx*dx+dy*dy, len=Math.sqrt(len2);
+    if (!len) return;
+    const vx=p.x-src.x, vy=p.y-src.y;
+    const weight=(vx*dx+vy*dy)/len2;
+    const dist=(dx*vy-dy*vx)/len;
+    curveDrag.edge.data({ curveWeight:clamp(weight,-2,3,0.5), curveDistance:clamp(dist,-1200,1200,60) });
+    curveDrag.changed=true; updateCurveHandle();
+  });
+  const end = event => {
+    if (!curveDrag) return;
+    const changed=curveDrag.changed; curveDrag=null;
+    try { handle.releasePointerCapture?.(event.pointerId); } catch (_) {}
+    if (changed) pushHistory();
+  };
+  handle.addEventListener('pointerup',end); handle.addEventListener('pointercancel',end);
+}
+
 // ENTITIES AND FREE TEXT
 function addEntityFromPalette(typeId) {
+  if (canonicalType(typeId) === 'image') { $('canvas-image-input')?.click(); return null; }
   setMode('select');
   typeId = canonicalType(typeId);
   const ext = cy.extent();
@@ -568,6 +626,21 @@ function addEntityFromPalette(typeId) {
   return node;
 }
 function addText() { return addEntityFromPalette('text'); }
+function addCanvasImage(file) {
+  if (!file || !/^image\//i.test(file.type)) { showToast(t('invalidImage')); return; }
+  const reader = new FileReader();
+  reader.onload = event => {
+    const url = event.target.result;
+    if (!safeImageURL(url)) { showToast(t('invalidImage')); return; }
+    setMode('select');
+    const ext = cy.extent(), node = addNodeToGraph('image', file.name.replace(/\.[^.]+$/,''), { x:(ext.x1+ext.x2)/2, y:(ext.y1+ext.y2)/2 });
+    node.data({ iconSvg:url, customImg:url, customText:null, size:120 });
+    pushHistory(); selectElement(node); cy.animate({ center:{ eles:node }, duration:160 });
+  };
+  reader.onerror = () => showToast(t('readError'));
+  reader.readAsDataURL(file);
+}
+
 function addNodeToGraph(typeId, name, position) {
   typeId = canonicalType(typeId);
   const type = getType(typeId);
@@ -658,6 +731,9 @@ function showEdgeInspector(edge, open = true) {
   const dashed = edge.data('lineStyle') === 'dashed', curved = edge.data('curve') === 'curved';
   $('ie-solid-btn').classList.toggle('active', !dashed); $('ie-dashed-btn').classList.toggle('active', dashed);
   $('ie-straight-btn').classList.toggle('active', !curved); $('ie-curved-btn').classList.toggle('active', curved);
+  if ($('double-arrow-inspector')) $('double-arrow-inspector').hidden = !isArrow;
+  if ($('ie-double-arrow')) $('ie-double-arrow').checked = isArrow && !!edge.data('bidirectional');
+  updateCurveHandle();
   if (open) setInspectorOpen(true);
 }
 function focusNameInput() { $('ii-name')?.focus(); $('ii-name')?.select(); }
@@ -839,6 +915,9 @@ function normalizeGraph(input) {
       data.fontSize = clamp(data.fontSize, 8, 72, 10);
       data.width = clamp(data.width, 1, 12, 1.5);
       data.lineStyle = data.lineStyle === 'dashed' ? 'dashed' : 'solid';
+      data.bidirectional = data.edgeType === 'arrow' && !!data.bidirectional;
+      data.curveDistance = clamp(data.curveDistance,-1200,1200,60);
+      data.curveWeight = clamp(data.curveWeight,-2,3,0.5);
       // A missing curve field keeps the original parallel-edge Bezier routing.
       if (data.curve != null) data.curve = data.curve === 'curved' ? 'curved' : 'straight';
     }
@@ -1239,6 +1318,8 @@ function closeStartup() { if ($('startup-modal')) $('startup-modal').style.displ
 function closeTimeline() { if ($('timeline-modal')) $('timeline-modal').style.display = 'none'; $('btn-timeline')?.focus(); }
 function initToolbar() {
   on('btn-select','click',() => setMode('select')); on('btn-line','click',() => setMode('line')); on('btn-arrow','click',() => setMode('arrow'));
+  on('toggle-draw-curved','change',event => { drawCurved = !!event.target.checked; });
+  on('toggle-double-arrow','change',event => { drawDoubleArrow = !!event.target.checked; });
   on('btn-text','click',addText); on('btn-undo','click',undo); on('btn-redo','click',redo); on('btn-delete','click',deleteSelected); on('btn-fit','click',fitGraph);
   bindMenuAction('btn-png',exportPNG); bindMenuAction('btn-pdf',exportPDF); bindMenuAction('btn-save',exportJSON);
   bindMenuAction('btn-load',() => $('load-input')?.click());
@@ -1246,6 +1327,7 @@ function initToolbar() {
   bindMenuAction('toggle-presentation',() => setPresentationMode(!presentationEnabled));
   bindMenuAction('btn-flaticon-menu',() => window.open('https://www.flaticon.com/','_blank','noopener,noreferrer'));
   on('load-input','change',event => { const file = event.target.files[0]; event.target.value = ''; if (file) importJSON(file); });
+  on('canvas-image-input','change',event => { const file = event.target.files[0]; event.target.value = ''; if (file) addCanvasImage(file); });
   on('file-input','change',event => { const file = event.target.files[0]; event.target.value = ''; if (file) importFile(file); });
   on('btn-import','click',() => $('file-input')?.click());
   on('btn-close-modal','click',closeStartup);
@@ -1329,6 +1411,7 @@ function initInspector() {
   on('ii-flaticon-url','keydown',event => { if (event.key === 'Enter') { event.preventDefault(); applyFlaticonURL(); } });
   on('btn-reset-icon','click',() => { if (liveSelection('node')) resetNodeIcon(selectedEl); });
   bindInspectorField('ie-label','edge','label',String);
+  on('ie-double-arrow','change',event => { if (liveSelection('edge') && selectedEl.data('edgeType') === 'arrow') { selectedEl.data('bidirectional',!!event.target.checked); showEdgeInspector(selectedEl,false); pushHistory(); } });
   bindInspectorField('ie-color','edge','color',value => hexColor(value));
   bindInspectorField('ie-text-color','edge','textColor',value => hexColor(value));
   bindInspectorField('ie-font-size','edge','fontSize',value => clamp(value,8,72,10),edge => setText('ie-font-size-value',edge.data('fontSize')+'px'));
@@ -1341,7 +1424,7 @@ function initInspector() {
     ['ie-solid-btn','lineStyle','solid'], ['ie-dashed-btn','lineStyle','dashed'],
     ['ie-straight-btn','curve','straight'], ['ie-curved-btn','curve','curved'],
   ].forEach(([id,key,value]) => on(id,'click',() => {
-    if (liveSelection('edge')) { selectedEl.data(key,value); showEdgeInspector(selectedEl,false); pushHistory(); }
+    if (liveSelection('edge')) { selectedEl.data(key,value); if (key === 'curve' && value === 'curved' && selectedEl.data('curveDistance') == null) selectedEl.data({ curveDistance:60, curveWeight:0.5 }); if (key === 'edgeType' && value === 'line') selectedEl.data('bidirectional',false); showEdgeInspector(selectedEl,false); pushHistory(); }
   }));
   document.querySelectorAll('.wall-color-btn').forEach(button => button.addEventListener('click',() => {
     const selected = cy.nodes(':selected');
@@ -1475,7 +1558,7 @@ function bootstrap() {
   try {
     if (typeof window.cytoscape !== 'function') throw new Error('Cytoscape did not load from the CDN.');
     isLight = document.documentElement.classList.contains('light');
-    initCy(); initPalette(); initTypeSelect(); initToolbar(); initInspector(); initKeyboard(); initPresentation(); initResponsive();
+    initCy(); initCurveHandle(); initPalette(); initTypeSelect(); initToolbar(); initInspector(); initKeyboard(); initPresentation(); initResponsive();
     applyLang(); pushHistory(); updateToolbar(); updateStatus();
     if ($('startup-error')) $('startup-error').hidden = true;
     if (visibleModal()?.id === 'startup-modal') $('btn-close-modal')?.focus();
